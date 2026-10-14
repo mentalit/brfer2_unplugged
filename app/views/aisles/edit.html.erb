@@ -1,0 +1,12 @@
+<% content_for :title, "Editing aisle" %>
+
+<h1>Editing aisle</h1>
+
+<%= render "form", aisle: @aisle %>
+
+<br>
+
+<div>
+  <%= link_to "Show this aisle", @aisle %> |
+  <%= link_to "Back to aisles", :back %>
+</div>

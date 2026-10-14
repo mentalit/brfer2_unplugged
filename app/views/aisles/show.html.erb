@@ -1,0 +1,10 @@
+<p style="color: green"><%= notice %></p>
+
+<%= render @aisle %>
+
+<div>
+  <%= link_to "Edit this aisle", edit_aisle_path(@aisle) %> |
+  <%= link_to "Back to aisles", :back %>
+
+  <%= button_to "Destroy this aisle", @aisle, method: :delete %>
+</div>

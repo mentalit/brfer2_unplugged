@@ -1,0 +1,67 @@
+<%= form_with(model: [@store,aisle]) do |form| %>
+  <% if aisle.errors.any? %>
+    <div style="color: red">
+      <h2><%= pluralize(aisle.errors.count, "error") %> prohibited this aisle from being saved:</h2>
+
+      <ul>
+        <% aisle.errors.each do |error| %>
+          <li><%= error.full_message %></li>
+        <% end %>
+      </ul>
+    </div>
+  <% end %>
+
+  <div>
+    <%= form.label :aisle_num, style: "display: block" %>
+    <%= form.text_field :aisle_num %>
+  </div>
+
+  <div>
+    <%= form.label :aisle_height, style: "display: block" %>
+    <%= form.text_field :aisle_height %>
+  </div>
+
+  <div>
+    <%= form.label :CHECKSTRING, style: "display: block" %>
+    <%= form.text_field :CHECKSTRING %>
+  </div>
+
+  <div>
+    <%= form.label :LOC, style: "display: block" %>
+    <%= form.text_field :LOC %>
+  </div>
+
+  <div>
+    <%= form.label :TYPE, style: "display: block" %>
+    <%= form.text_field :TYPE %>
+  </div>
+
+  <div>
+    <%= form.label :MAXLENGTH, style: "display: block" %>
+    <%= form.number_field :MAXLENGTH %>
+  </div>
+
+  <div>
+    <%= form.label :MAXWIDTH, style: "display: block" %>
+    <%= form.number_field :MAXWIDTH %>
+  </div>
+
+  <div>
+    <%= form.label :DIVISION, style: "display: block" %>
+    <%= form.text_field :DIVISION %>
+  </div>
+
+  <div>
+    <%= form.label :RACKTYPE, style: "display: block" %>
+    <%= form.text_field :RACKTYPE %>
+  </div>
+
+  <div>
+    <%= form.label :store_id, style: "display: block" %>
+    <%= form.text_field :store_id %>
+  </div>
+
+  <div>
+    <%= form.submit %>
+  </div>
+<% end %>
