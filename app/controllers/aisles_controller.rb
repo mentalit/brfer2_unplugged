@@ -20,6 +20,19 @@ class AislesController < ApplicationController
   def edit
   end
 
+   def import
+    store = Store.find(params[:store_id])
+
+    if params[:file].blank?
+      redirect_to store_aisles_path(store), alert: "Choose a Warehouse_details.csv file." and return
+  end
+
+    count = WarehouseDetailsImportService.new(store, params[:file]).call
+    redirect_to store_aisles_path(store), notice: "Imported #{count} aisles."
+  rescue CSV::MalformedCSVError, ActiveRecord::RecordInvalid => e
+    redirect_to store_aisles_path(store), alert: "Import failed: #{e.message}"
+  end
+
   # POST /aisles or /aisles.json
   def create
     @aisle = @store.aisles.build(aisle_params)

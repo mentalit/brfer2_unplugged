@@ -1,0 +1,12 @@
+<% content_for :title, "Editing level" %>
+
+<h1>Editing level</h1>
+
+<%= render "form", level: @level %>
+
+<br>
+
+<div>
+  <%= link_to "Show this level", @level %> |
+  <%= link_to "Back to levels", :back %>
+</div>

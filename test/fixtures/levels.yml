@@ -1,0 +1,15 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  lev_num: MyString
+  lev_depth: 1.5
+  lev_height: 1.5
+  lev_width: MyString
+  section: one
+
+two:
+  lev_num: MyString
+  lev_depth: 1.5
+  lev_height: 1.5
+  lev_width: MyString
+  section: two

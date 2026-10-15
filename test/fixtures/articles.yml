@@ -1,0 +1,65 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  ARTNO: MyString
+  ARTNAME_UNICODE: MyString
+  SLID: MyString
+  DIV: MyString
+  ASSQ: 1
+  SSQ: 1
+  DTFP: 1
+  DTFP_PLUS: 1
+  MIN: 1
+  MAX: 1
+  RSSQ: 1
+  SRP: 1
+  DT: 1
+  PALQ: 1
+  MPQ: 1
+  Item_No: MyString
+  CP_Sale_Sol_Name: MyString
+  CP_Length: MyString
+  CP_Width: MyString
+  CP_Height: MyString
+  CP_Weight_Gross: MyString
+  UL_Sale_Sol_Name: MyString
+  UL_Length_Gross: MyString
+  UL_Width_Gross: MyString
+  UL_Height_Gross: MyString
+  planned: false
+  new_slid: MyString
+  Start_Date_Sale: 2026-10-15
+  End_Date_Sale: 2026-10-15
+  store: one
+
+two:
+  ARTNO: MyString
+  ARTNAME_UNICODE: MyString
+  SLID: MyString
+  DIV: MyString
+  ASSQ: 1
+  SSQ: 1
+  DTFP: 1
+  DTFP_PLUS: 1
+  MIN: 1
+  MAX: 1
+  RSSQ: 1
+  SRP: 1
+  DT: 1
+  PALQ: 1
+  MPQ: 1
+  Item_No: MyString
+  CP_Sale_Sol_Name: MyString
+  CP_Length: MyString
+  CP_Width: MyString
+  CP_Height: MyString
+  CP_Weight_Gross: MyString
+  UL_Sale_Sol_Name: MyString
+  UL_Length_Gross: MyString
+  UL_Width_Gross: MyString
+  UL_Height_Gross: MyString
+  planned: false
+  new_slid: MyString
+  Start_Date_Sale: 2026-10-15
+  End_Date_Sale: 2026-10-15
+  store: two

@@ -1,0 +1,167 @@
+<%= form_with(model: [ @store, article ]) do |form| %>
+  <% if article.errors.any? %>
+    <div style="color: red">
+      <h2><%= pluralize(article.errors.count, "error") %> prohibited this article from being saved:</h2>
+
+      <ul>
+        <% article.errors.each do |error| %>
+          <li><%= error.full_message %></li>
+        <% end %>
+      </ul>
+    </div>
+  <% end %>
+
+  <div>
+    <%= form.label :ARTNO, style: "display: block" %>
+    <%= form.text_field :ARTNO %>
+  </div>
+
+  <div>
+    <%= form.label :ARTNAME_UNICODE, style: "display: block" %>
+    <%= form.text_field :ARTNAME_UNICODE %>
+  </div>
+
+  <div>
+    <%= form.label :SLID, style: "display: block" %>
+    <%= form.text_field :SLID %>
+  </div>
+
+  <div>
+    <%= form.label :DIV, style: "display: block" %>
+    <%= form.text_field :DIV %>
+  </div>
+
+  <div>
+    <%= form.label :ASSQ, style: "display: block" %>
+    <%= form.number_field :ASSQ %>
+  </div>
+
+  <div>
+    <%= form.label :SSQ, style: "display: block" %>
+    <%= form.number_field :SSQ %>
+  </div>
+
+  <div>
+    <%= form.label :DTFP, style: "display: block" %>
+    <%= form.number_field :DTFP %>
+  </div>
+
+  <div>
+    <%= form.label :DTFP_PLUS, style: "display: block" %>
+    <%= form.number_field :DTFP_PLUS %>
+  </div>
+
+  <div>
+    <%= form.label :MIN, style: "display: block" %>
+    <%= form.number_field :MIN %>
+  </div>
+
+  <div>
+    <%= form.label :MAX, style: "display: block" %>
+    <%= form.number_field :MAX %>
+  </div>
+
+  <div>
+    <%= form.label :RSSQ, style: "display: block" %>
+    <%= form.number_field :RSSQ %>
+  </div>
+
+  <div>
+    <%= form.label :SRP, style: "display: block" %>
+    <%= form.number_field :SRP %>
+  </div>
+
+  <div>
+    <%= form.label :DT, style: "display: block" %>
+    <%= form.number_field :DT %>
+  </div>
+
+  <div>
+    <%= form.label :PALQ, style: "display: block" %>
+    <%= form.number_field :PALQ %>
+  </div>
+
+  <div>
+    <%= form.label :MPQ, style: "display: block" %>
+    <%= form.number_field :MPQ %>
+  </div>
+
+  <div>
+    <%= form.label :Item_No, style: "display: block" %>
+    <%= form.text_field :Item_No %>
+  </div>
+
+  <div>
+    <%= form.label :CP_Sale_Sol_Name, style: "display: block" %>
+    <%= form.text_field :CP_Sale_Sol_Name %>
+  </div>
+
+  <div>
+    <%= form.label :CP_Length, style: "display: block" %>
+    <%= form.text_field :CP_Length %>
+  </div>
+
+  <div>
+    <%= form.label :CP_Width, style: "display: block" %>
+    <%= form.text_field :CP_Width %>
+  </div>
+
+  <div>
+    <%= form.label :CP_Height, style: "display: block" %>
+    <%= form.text_field :CP_Height %>
+  </div>
+
+  <div>
+    <%= form.label :CP_Weight_Gross, style: "display: block" %>
+    <%= form.text_field :CP_Weight_Gross %>
+  </div>
+
+  <div>
+    <%= form.label :UL_Sale_Sol_Name, style: "display: block" %>
+    <%= form.text_field :UL_Sale_Sol_Name %>
+  </div>
+
+  <div>
+    <%= form.label :UL_Length_Gross, style: "display: block" %>
+    <%= form.text_field :UL_Length_Gross %>
+  </div>
+
+  <div>
+    <%= form.label :UL_Width_Gross, style: "display: block" %>
+    <%= form.text_field :UL_Width_Gross %>
+  </div>
+
+  <div>
+    <%= form.label :UL_Height_Gross, style: "display: block" %>
+    <%= form.text_field :UL_Height_Gross %>
+  </div>
+
+  <div>
+    <%= form.label :planned, style: "display: block" %>
+    <%= form.checkbox :planned %>
+  </div>
+
+  <div>
+    <%= form.label :new_slid, style: "display: block" %>
+    <%= form.text_field :new_slid %>
+  </div>
+
+  <div>
+    <%= form.label :Start_Date_Sale, style: "display: block" %>
+    <%= form.date_field :Start_Date_Sale %>
+  </div>
+
+  <div>
+    <%= form.label :End_Date_Sale, style: "display: block" %>
+    <%= form.date_field :End_Date_Sale %>
+  </div>
+
+  <div>
+    <%= form.label :store_id, style: "display: block" %>
+    <%= form.text_field :store_id %>
+  </div>
+
+  <div>
+    <%= form.submit %>
+  </div>
+<% end %>

@@ -13,4 +13,9 @@
   <% end %>
 </div>
 
+<%= form_with url: import_store_aisles_path(@store), multipart: true do |f| %>
+  <%= f.file_field :file, accept: ".csv,.txt" %>
+  <%= f.submit "Import Warehouse Details" %>
+<% end %>
+
 <%= link_to "New aisle", new_store_aisle_path %>

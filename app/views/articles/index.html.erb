@@ -1,0 +1,28 @@
+<p style="color: green"><%= notice %></p>
+
+<% content_for :title, "Articles" %>
+
+<h1>Articles</h1>
+
+<div id="articles">
+  <% @articles.each do |article| %>
+    <%= render article %>
+    <p>
+      <%= link_to "Show this article", article %>
+    </p>
+  <% end %>
+</div>
+
+<%= form_with url: import_store_articles_path(@store), multipart: true do |f| %>
+  <div>
+    <%= f.label :article_file, "Article CSV (ARTNO / DIV / AVAILSTOCK)" %>
+    <%= f.file_field :article_file, accept: ".csv,.txt,.tsv" %>
+  </div>
+  <div>
+    <%= f.label :item_file, "Item CSV (Item No / Start Date Sale / CP / UL)" %>
+    <%= f.file_field :item_file, accept: ".csv,.txt,.tsv" %>
+  </div>
+  <%= f.submit "Upload Articles" %>
+<% end %>
+
+<%= link_to "New article", new_store_article_path %>
