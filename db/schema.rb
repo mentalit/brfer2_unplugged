@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_15_153548) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_16_011123) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -66,6 +66,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_153548) do
     t.float "FCST"
     t.string "linked_families", default: [], array: true
     t.integer "AVAILSTOCK"
+    t.integer "hfb"
+    t.integer "pa"
     t.index ["store_id"], name: "index_articles_on_store_id"
   end
 
@@ -78,6 +80,22 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_153548) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["section_id"], name: "index_levels_on_section_id"
+  end
+
+  create_table "placements", force: :cascade do |t|
+    t.bigint "store_id", null: false
+    t.bigint "article_id", null: false
+    t.bigint "section_id"
+    t.bigint "level_id"
+    t.string "mode"
+    t.string "new_slid"
+    t.integer "quantity"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["article_id"], name: "index_placements_on_article_id"
+    t.index ["level_id"], name: "index_placements_on_level_id"
+    t.index ["section_id"], name: "index_placements_on_section_id"
+    t.index ["store_id"], name: "index_placements_on_store_id"
   end
 
   create_table "sections", force: :cascade do |t|
@@ -102,5 +120,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_153548) do
   add_foreign_key "aisles", "stores"
   add_foreign_key "articles", "stores"
   add_foreign_key "levels", "sections"
+  add_foreign_key "placements", "articles"
+  add_foreign_key "placements", "stores"
   add_foreign_key "sections", "aisles"
 end

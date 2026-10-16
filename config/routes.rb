@@ -16,6 +16,10 @@ Rails.application.routes.draw do
         post :import
       end
       resources :sections, shallow: true do
+        collection do
+          post :plan_voss
+          get  :export_voss
+        end
         resources :levels
       end
     end

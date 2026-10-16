@@ -1,16 +1,77 @@
 <p style="color: green"><%= notice %></p>
+<p style="color: red"><%= alert %></p>
 
 <% content_for :title, "Sections" %>
 
 <h1>Sections</h1>
 
+<% if @voss_aisle %>
+  <div id="planner">
+    <h2>Voss planner</h2>
+
+    <%= form_with url: aisle_sections_path(@aisle), method: :get do |f| %>
+      <%= f.label :hfb, "HFB" %>
+      <%= f.select :hfb, @hfbs, { include_blank: "Select HFB", selected: @hfb },
+                   onchange: "this.form.requestSubmit()" %>
+
+      <% if @hfb %>
+        <%= f.label :pa, "PA" %>
+        <%= f.select :pa, @pas, { include_blank: "All PAs", selected: @pa },
+                     onchange: "this.form.requestSubmit()" %>
+      <% end %>
+    <% end %>
+
+    <% if @hfb %>
+      <%= form_with url: plan_voss_aisle_sections_path(@aisle) do |f| %>
+        <%= f.hidden_field :hfb, value: @hfb %>
+        <%= f.hidden_field :pa,  value: @pa %>
+
+        <div>
+          <%= f.label :article_limit, "Article limit" %>
+          <%= f.number_field :article_limit, min: 1 %>
+        </div>
+        <div>
+          <%= f.label :max_height, "Height" %>
+          <%= f.number_field :max_height, step: "any", min: 0 %>
+        </div>
+        <div>
+          <%= f.label :max_length, "Length" %>
+          <%= f.number_field :max_length, step: "any", min: 0 %>
+        </div>
+        <div>
+          <%= f.label :max_width, "Width" %>
+          <%= f.number_field :max_width, step: "any", min: 0 %>
+        </div>
+        <div>
+          <%= f.label :max_weight, "Weight" %>
+          <%= f.number_field :max_weight, step: "any", min: 0 %>
+        </div>
+        <div>
+          <%= f.label :max_fcst, "Max Fcst" %>
+          <%= f.number_field :max_fcst, step: "any", min: 0 %>
+        </div>
+
+        <%= f.submit @pa ? "Plan Voss (PA #{@pa})" : "Plan Voss (all of HFB #{@hfb})" %>
+      <% end %>
+
+      <p>
+        <%= link_to "Export Voss CSV",
+                    export_voss_aisle_sections_path(@aisle, hfb: @hfb, pa: @pa, format: :csv),
+                    data: { turbo: false } %>
+      </p>
+    <% end %>
+  </div>
+<% end %>
+
 <div id="sections">
   <% @sections.each do |section| %>
     <%= render section %>
+    <h3>Planned articles (<%= (@placements_by_section[section.id] || []).size %>)</h3>
+    <%= render "sections/placements", placements: @placements_by_section[section.id] || [] %>
     <p>
       <%= link_to "Show this section", section %>
     </p>
   <% end %>
 </div>
 
-<%= link_to "New section", new_aisle_section_path %>
+<%= link_to "New section", new_aisle_section_path(@aisle) %>
