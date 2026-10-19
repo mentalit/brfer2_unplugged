@@ -5,6 +5,13 @@ class ArticleUploadService
 
   DIVISIONS = %w[SF WH].freeze
 
+  # Conversion factors to millimetres
+  MM_FACTORS = {
+    "mm" => 1.0, "cm" => 10.0, "m" => 1000.0,
+    "in" => 25.4, "inch" => 25.4, "inches" => 25.4, "\"" => 25.4,
+    "ft" => 304.8, "'" => 304.8
+  }.freeze
+
   # attribute => [type, [CSV headers to try, in order]]
   # Covers both slm0003_export and SLM003_Dash headers.
   # Header matching ignores case, spaces and underscores.
@@ -36,18 +43,18 @@ class ArticleUploadService
   }.freeze
 
   ITEM_FIELDS = {
-    "Item_No"          => [:string,       ["Item No"]],
+    "Item_No"          => [:string,       ["Item No", "Item Number"]],
     "Start_Date_Sale"  => [:date,         ["Start Date Sale"]],
     "End_Date_Sale"    => [:date,         ["End Date Sale"]],
     "CP_Sale_Sol_Name" => [:string,       ["CP Sale Sol Name"]],
-    "CP_Length"        => [:string,       ["CP Length"]],
-    "CP_Width"         => [:string,       ["CP Width"]],
-    "CP_Height"        => [:string,       ["CP Height"]],
+    "CP_Length"        => [:mm,           ["CP Length"]],
+    "CP_Width"         => [:mm,           ["CP Width"]],
+    "CP_Height"        => [:mm,           ["CP Height"]],
     "CP_Weight_Gross"  => [:string,       ["CP Weight Gross"]],
     "UL_Sale_Sol_Name" => [:string,       ["UL Sale Sol Name"]],
-    "UL_Length_Gross"  => [:string,       ["UL Length Gross"]],
-    "UL_Width_Gross"   => [:string,       ["UL Width Gross"]],
-    "UL_Height_Gross"  => [:string,       ["UL Height Gross"]],
+    "UL_Length_Gross"  => [:mm,           ["UL Length Gross"]],
+    "UL_Width_Gross"   => [:mm,           ["UL Width Gross"]],
+    "UL_Height_Gross"  => [:mm,           ["UL Height Gross"]],
     # fallbacks only — used when the slm file has no MPQ / PALQ for the article
     "_dwp_mpq"         => [:positive_int, ["MP Qty"]],
     "_dwp_palq"        => [:positive_int, ["UL Qty"]]
@@ -70,13 +77,17 @@ class ArticleUploadService
     item_rows    = files.find { |rows| !rows.equal?(article_rows) && has_column?(rows.headers, ITEM_FIELDS["Item_No"][1]) }
 
     unless article_rows
-      found = files.map { |rows| rows.headers.compact.first(8).join(", ") }.join(" | ")
-      raise UploadError, "No 'Article Number' or 'ARTNO' column found. Headers seen: #{found}"
+      raise UploadError, "No 'Article Number' or 'ARTNO' column found. Headers seen: #{headers_seen(files)}"
+    end
+
+    if files.size > 1 && item_rows.nil?
+      other = files.reject { |rows| rows.equal?(article_rows) }
+      raise UploadError, "The DWP file wasn't recognised (no 'Item No' column). Headers seen: #{headers_seen(other)}"
     end
 
     article_map = present_map(article_rows.headers, ARTICLE_FIELDS)
-    result[:mpq_columns]  = (article_map.find { |m| m[0] == "MPQ" }&.last || []).join(", ").presence || "none"
-    result[:item_file]    = item_rows ? "yes" : "no"
+    result[:mpq_columns] = (article_map.find { |m| m[0] == "MPQ" }&.last || []).join(", ").presence || "none"
+    result[:item_file]   = item_rows ? "yes" : "no"
 
     items    = load_items(item_rows)
     articles = load_articles(article_rows, article_map, result)
@@ -160,6 +171,10 @@ class ArticleUploadService
 
   private
 
+  def headers_seen(files)
+    files.map { |rows| rows.headers.compact.first(8).join(", ") }.join(" | ")
+  end
+
   # Sets attr from the fallback only when the article would otherwise end up without a value
   def fill_from_fallback(attrs, article, attr, fallback)
     return if fallback.nil?
@@ -219,12 +234,16 @@ class ArticleUploadService
 
   # Only columns that exist in the CSV are mapped (missing fields are never updated)
   # Returns [[attribute, type, [actual headers]], ...]
+  # Measurement columns also match headers with a unit on the end, e.g. "CP Length (in)".
   def present_map(headers, fields)
     lookup = {}
     headers.compact.each { |h| lookup[norm(h)] ||= h }
 
     fields.filter_map do |attr, (type, candidates)|
-      actual = candidates.filter_map { |c| lookup[norm(c)] }.uniq
+      actual = candidates.filter_map do |c|
+        lookup[norm(c)] ||
+          (type == :mm && headers.compact.find { |h| norm(h).start_with?(norm(c)) && %w[MM CM M IN INCH INCHES].include?(norm(h).delete_prefix(norm(c))) })
+      end.uniq
       [attr, type, actual] if actual.any?
     end
   end
@@ -232,7 +251,7 @@ class ArticleUploadService
   # Takes the first candidate column whose value casts to something usable
   def map_row(row, map)
     map.each_with_object({}) do |(attr, type, actual), h|
-      h[attr] = actual.lazy.map { |a| cast(row[a], type) }.find { |v| !v.nil? }
+      h[attr] = actual.lazy.map { |a| cast(row[a], type, a) }.find { |v| !v.nil? }
       h[attr] = [] if type == :array && h[attr].nil?
       h[attr] = false if type == :boolean && h[attr].nil?
     end
@@ -249,17 +268,42 @@ class ArticleUploadService
     s.gsub(/\D/, "").sub(/\A0+(?=\d)/, "")
   end
 
-  def cast(value, type)
+  def cast(value, type, header = nil)
     s = value.to_s.strip
     case type
     when :string       then s.presence
     when :integer      then (n = to_number(s)) ? n.round : nil
     when :positive_int then (n = to_number(s)) && n.round > 0 ? n.round : nil
     when :float        then to_number(s)
+    when :mm           then to_mm(s, header)
     when :date         then parse_date(s)
     when :boolean      then s.blank? ? nil : %w[yes y true 1].include?(s.downcase)
     when :array        then (parts = s.split(/[,;|\s]+/).reject(&:blank?)).any? ? parts : nil
     end
+  end
+
+  # Returns whole millimetres as a string (the columns are strings).
+  # Unit comes from the cell ("30.7 in", "78cm", '30.7"'), then the header, else mm.
+  def to_mm(s, header)
+    return nil if s.blank?
+
+    m = s.downcase.match(/\A(-?[\d.,]+)\s*(mm|cm|m|inches|inch|in|ft|"|')?\z/)
+    return nil unless m
+
+    n = to_number(m[1]) || to_number(m[1].tr(",", "."))
+    return nil if n.nil?
+
+    unit = m[2] || unit_from_header(header) || "mm"
+    (n * MM_FACTORS.fetch(unit, 1.0)).round.to_s
+  end
+
+  def unit_from_header(header)
+    h = header.to_s.downcase
+    return "mm" if h.match?(/\bmm\b/)
+    return "cm" if h.match?(/\bcm\b/)
+    return "in" if h.match?(/\b(in|inch|inches)\b/) || h.include?('"')
+    return "m"  if h.match?(/\(m\)|\bmeters?\b|\bmetres?\b/)
+    nil
   end
 
   def to_number(s)
@@ -280,12 +324,28 @@ class ArticleUploadService
     nil
   end
 
+  # UTF-8 (with or without BOM), UTF-16 (Excel "Unicode Text") and Windows-1252
+  def decode(raw)
+    raw = raw.b
+    text =
+      if raw.start_with?("\xFF\xFE".b)
+        raw[2..].force_encoding("UTF-16LE").encode("UTF-8", invalid: :replace, undef: :replace)
+      elsif raw.start_with?("\xFE\xFF".b)
+        raw[2..].force_encoding("UTF-16BE").encode("UTF-8", invalid: :replace, undef: :replace)
+      elsif raw[0, 400].count("\x00") > 50
+        enc = raw.start_with?("\x00".b) ? "UTF-16BE" : "UTF-16LE"
+        raw.force_encoding(enc).encode("UTF-8", invalid: :replace, undef: :replace)
+      else
+        utf8 = raw.dup.force_encoding("UTF-8")
+        utf8.valid_encoding? ? utf8 : raw.dup.force_encoding("Windows-1252").encode("UTF-8", invalid: :replace, undef: :replace)
+      end
+    text.delete_prefix("\uFEFF").delete("\u0000")
+  end
+
   def read_csv(file)
     file.rewind if file.respond_to?(:rewind)
     raw  = file.respond_to?(:read) ? file.read : File.binread(file)
-    text = raw.dup.force_encoding("UTF-8")
-    text = raw.dup.force_encoding("Windows-1252").encode("UTF-8") unless text.valid_encoding?
-    text = text.delete_prefix("\uFEFF")
+    text = decode(raw)
 
     first_line = text[0, text.index("\n") || text.size]
     sep = ["\t", ";", ","].max_by { |s| first_line.count(s) }

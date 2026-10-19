@@ -2,13 +2,14 @@ require "csv"
 
 class SectionsController < ApplicationController
   before_action :set_section, only: %i[ show edit update destroy ]
-  before_action :get_aisle, only: %i[ new create index plan_voss export_voss ]
+  before_action :get_aisle, only: %i[ new create index plan_voss export_voss plan_aisle unplan_aisle ]
 
   # GET /sections or /sections.json
   def index
-    @sections   = @aisle.sections
-    @voss_aisle = VossPlannerService.voss_aisle?(@aisle)
-    store       = @aisle.store
+    @sections        = @aisle.sections
+    @voss_aisle      = VossPlannerService.voss_aisle?(@aisle)
+    @aisle_plannable = AislePlannerService.plannable_aisle?(@aisle)
+    store            = @aisle.store
 
     @hfb  = params[:hfb].presence&.to_i
     @pa   = params[:pa].presence&.to_i
@@ -16,10 +17,52 @@ class SectionsController < ApplicationController
     @pas  = @hfb ? store.articles.where(hfb: @hfb).where.not(pa: nil).distinct.order(:pa).pluck(:pa) : []
     @pa   = nil unless @pas.include?(@pa)
 
-    @placements_by_section = Placement.where(section_id: @sections.ids)
-                                      .joins(:article).includes(:article)
-                                      .order(Article.arel_table[:FCST].desc.nulls_last)
-                                      .group_by(&:section_id)
+    @end_date   = date_param(:end_date)
+    @start_date = date_param(:start_date)
+
+    @placements = Placement.where(section_id: @sections.ids)
+                           .joins(:article).includes(:article)
+                           .order(:new_slid)
+                           .order(Article.arel_table[:FCST].desc.nulls_last)
+  end
+
+  # POST /aisles/:aisle_id/sections/plan_aisle
+  def plan_aisle
+    hfb        = params[:hfb].presence&.to_i
+    pa         = params[:pa].presence&.to_i
+    end_date   = date_param(:end_date)
+    start_date = date_param(:start_date)
+    back       = aisle_sections_path(@aisle, hfb: hfb, pa: pa, end_date: end_date, start_date: start_date)
+
+    unless AislePlannerService.plannable_aisle?(@aisle)
+      redirect_to back, alert: "Aisle mode cannot plan aisle #{@aisle.aisle_num}."
+      return
+    end
+
+    r = AislePlannerService.new(@aisle, hfb: hfb, pa: pa,
+                                end_date: end_date, start_date: start_date).call
+
+    redirect_to back,
+                notice: "Aisle #{@aisle.aisle_num}: #{r[:candidates]} to plan — " \
+                        "#{r[:in_place]} at own slid_h, #{r[:placed]} newly planned, " \
+                        "#{r[:no_room]} no room, #{r[:too_deep]} too deep, #{r[:skipped]} skipped."
+  end
+
+  # DELETE /aisles/:aisle_id/sections/unplan_aisle
+  def unplan_aisle
+    placements = Placement.where(section_id: @aisle.sections.select(:id))
+    ids        = placements.distinct.pluck(:article_id)
+    removed    = 0
+
+    ActiveRecord::Base.transaction do
+      removed = placements.delete_all
+      Article.where(id: ids).where.not(id: Placement.select(:article_id))
+             .update_all(planned: false, new_slid: nil)
+    end
+
+    redirect_to aisle_sections_path(@aisle, hfb: params[:hfb].presence, pa: params[:pa].presence,
+                                    end_date: params[:end_date].presence, start_date: params[:start_date].presence),
+                notice: "Aisle #{@aisle.aisle_num} emptied: #{removed} #{"placement".pluralize(removed)} removed."
   end
 
   # POST /aisles/:aisle_id/sections/plan_voss
@@ -146,6 +189,12 @@ class SectionsController < ApplicationController
     def number_param(key)
       s = params[key].to_s.strip.tr(",", ".")
       s.empty? ? nil : Float(s, exception: false)
+    end
+
+    def date_param(key)
+      Date.iso8601(params[key].to_s)
+    rescue Date::Error
+      nil
     end
 
     # Only allow a list of trusted parameters through.

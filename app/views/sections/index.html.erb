@@ -3,15 +3,19 @@
 
 <% content_for :title, "Sections" %>
 
-<h1>Sections</h1>
+<h1>Sections — aisle <%= @aisle.aisle_num %></h1>
 
-<% if @voss_aisle %>
+<% if @voss_aisle || @aisle_plannable %>
   <div id="planner">
-    <h2>Voss planner</h2>
+    <h2><%= @voss_aisle ? "Voss planner" : "Aisle planner" %></h2>
 
     <%= form_with url: aisle_sections_path(@aisle), method: :get do |f| %>
+      <%= f.hidden_field :end_date,   value: @end_date %>
+      <%= f.hidden_field :start_date, value: @start_date %>
+
       <%= f.label :hfb, "HFB" %>
-      <%= f.select :hfb, @hfbs, { include_blank: "Select HFB", selected: @hfb },
+      <%= f.select :hfb, @hfbs,
+                   { include_blank: (@voss_aisle ? "Select HFB" : "All HFBs"), selected: @hfb },
                    onchange: "this.form.requestSubmit()" %>
 
       <% if @hfb %>
@@ -21,7 +25,7 @@
       <% end %>
     <% end %>
 
-    <% if @hfb %>
+    <% if @voss_aisle && @hfb %>
       <%= form_with url: plan_voss_aisle_sections_path(@aisle) do |f| %>
         <%= f.hidden_field :hfb, value: @hfb %>
         <%= f.hidden_field :pa,  value: @pa %>
@@ -31,15 +35,15 @@
           <%= f.number_field :article_limit, min: 1 %>
         </div>
         <div>
-          <%= f.label :max_height, "Height" %>
+          <%= f.label :max_height, "Height (mm)" %>
           <%= f.number_field :max_height, step: "any", min: 0 %>
         </div>
         <div>
-          <%= f.label :max_length, "Length" %>
+          <%= f.label :max_length, "Length (mm)" %>
           <%= f.number_field :max_length, step: "any", min: 0 %>
         </div>
         <div>
-          <%= f.label :max_width, "Width" %>
+          <%= f.label :max_width, "Width (mm)" %>
           <%= f.number_field :max_width, step: "any", min: 0 %>
         </div>
         <div>
@@ -60,14 +64,69 @@
                     data: { turbo: false } %>
       </p>
     <% end %>
+
+    <% if @aisle_plannable %>
+      <%= form_with url: plan_aisle_aisle_sections_path(@aisle) do |f| %>
+        <%= f.hidden_field :hfb, value: @hfb %>
+        <%= f.hidden_field :pa,  value: @pa %>
+
+        <div>
+          <%= f.label :end_date, "End Date Sale — plan blank or after" %>
+          <%= f.date_field :end_date, value: @end_date %>
+        </div>
+        <div>
+          <%= f.label :start_date, "Start Date Sale — plan blank or on/before" %>
+          <%= f.date_field :start_date, value: @start_date %>
+        </div>
+
+        <%= f.submit "Plan aisle #{@aisle.aisle_num}" +
+                     (@pa ? " (PA #{@pa})" : @hfb ? " (HFB #{@hfb})" : "") %>
+      <% end %>
+    <% end %>
   </div>
 <% end %>
+
+<p>
+  <%= button_to "Unplan aisle #{@aisle.aisle_num}",
+                unplan_aisle_aisle_sections_path(@aisle),
+                method: :delete,
+                params: { hfb: @hfb, pa: @pa, end_date: @end_date, start_date: @start_date },
+                form: { data: { turbo_confirm: "Remove every planned article from all sections in aisle #{@aisle.aisle_num}?" } } %>
+</p>
+
+<h2>Planned articles (<%= @placements.size %>)</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Slid_h</th>
+      <th>New slid</th>
+      <th>ARTNO</th>
+      <th>Name</th>
+      <th>DT</th>
+      <th>Qty</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @placements.each do |p| %>
+      <% a = p.article %>
+      <% original = Array(a["SLID"]).map { |s| s.to_s.strip }.include?(p.new_slid) %>
+      <tr>
+        <td><%= Array(a["SLID"]).join(", ") %></td>
+        <td><%= p.new_slid %></td>
+        <td><%= link_to a["ARTNO"], article_path(a) %></td>
+        <td><%= a["ARTNAME_UNICODE"] %></td>
+        <td><%= a["DT"] %></td>
+        <td><%= p.quantity %></td>
+        <td><%= original ? "Original" : "Newly planned" %></td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>
 
 <div id="sections">
   <% @sections.each do |section| %>
     <%= render section %>
-    <h3>Planned articles (<%= (@placements_by_section[section.id] || []).size %>)</h3>
-    <%= render "sections/placements", placements: @placements_by_section[section.id] || [] %>
     <p>
       <%= link_to "Show this section", section %>
     </p>

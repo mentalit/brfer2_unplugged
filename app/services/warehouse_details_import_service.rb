@@ -1,8 +1,9 @@
 require "csv"
 
 class WarehouseDetailsImportService
-  SECTION_UNIT_WIDTH   = 916.3
-  DEFAULT_AISLE_HEIGHT = 2286.0
+  SECTION_UNIT_WIDTH   = 916.3   # mm
+  DEFAULT_AISLE_HEIGHT = 2286.0  # mm
+  CM_TO_MM             = 10
   DIVISION_SUFFIX      = { "WH" => "FS", "SF" => "SS" }.freeze
 
   def initialize(store, file)
@@ -13,8 +14,10 @@ class WarehouseDetailsImportService
   def call
     rows = read_rows.select { |r| DIVISION_SUFFIX.key?(r["DIVISION"]) && r["LOC"].present? }
 
-    storage_rows = rows.select { |r| r["TYPE"] == "Storage" }
-    sales_rows   = rows.select { |r| r["TYPE"] == "Sales" }
+    storage_rows = rows.select { |r| r["TYPE"] == "STORAGE" }
+    sales_rows   = rows.select { |r| r["TYPE"] == "SALES" }
+
+    Rails.logger.info "[WarehouseImport] usable rows=#{rows.size} sales=#{sales_rows.size} storage=#{storage_rows.size}"
 
     aisles_count = 0
 
@@ -30,9 +33,9 @@ class WarehouseDetailsImportService
           "aisle_height" => DEFAULT_AISLE_HEIGHT,
           "CHECKSTRING"  => first["CHECKSTRING"],
           "LOC"          => first["LOC"],
-          "TYPE"         => first["TYPE"],
-          "MAXLENGTH"    => measure && measure["MAXLENGTH"].presence&.to_i,
-          "MAXWIDTH"     => measure && measure["MAXWIDTH"].presence&.to_i,
+          "TYPE"         => "Sales",
+          "MAXLENGTH"    => cm_to_mm(measure && measure["MAXLENGTH"]),
+          "MAXWIDTH"     => cm_to_mm(measure && measure["MAXWIDTH"]),
           "DIVISION"     => first["DIVISION"],
           "RACKTYPE"     => first["RACKTYPE"]
         )
@@ -67,14 +70,40 @@ class WarehouseDetailsImportService
 
   private
 
+  def cm_to_mm(value)
+    value.presence && (value.to_f * CM_TO_MM).round
+  end
+
   def read_rows
-    path = @file.respond_to?(:path) ? @file.path : @file
-    text = File.read(path, encoding: "bom|utf-8")
-    sep  = text.lines.first.to_s.include?("\t") ? "\t" : ","
+    text = read_text
+    header_line = text.lines.first.to_s
+    sep = ["\t", ";", ","].max_by { |s| header_line.count(s) }
+
+    Rails.logger.info "[WarehouseImport] separator=#{sep.inspect} header=#{header_line.strip.inspect}"
 
     CSV.parse(text, headers: true, col_sep: sep, liberal_parsing: true,
-                    header_converters: ->(h) { h.to_s.strip })
-       .map { |r| r.to_h.transform_values { |v| v.to_s.strip } }
+                    header_converters: ->(h) { h.to_s.strip.upcase })
+       .map do |r|
+         h = r.to_h.transform_values { |v| v.to_s.strip }
+         h["TYPE"]     = h["TYPE"].to_s.upcase
+         h["DIVISION"] = h["DIVISION"].to_s.upcase
+         h
+       end
+  end
+
+  def read_text
+    path = @file.respond_to?(:path) ? @file.path : @file
+    raw  = File.binread(path)
+
+    if raw.start_with?("\xFF\xFE".b)
+      raw.byteslice(2..).force_encoding("UTF-16LE").encode("UTF-8")
+    elsif raw.start_with?("\xFE\xFF".b)
+      raw.byteslice(2..).force_encoding("UTF-16BE").encode("UTF-8")
+    else
+      raw = raw.byteslice(3..) if raw.start_with?("\xEF\xBB\xBF".b)
+      text = raw.force_encoding("UTF-8")
+      text.valid_encoding? ? text : text.encode("UTF-8", "Windows-1252", invalid: :replace, undef: :replace)
+    end
   end
 
   # "03-01-00" => "030100"

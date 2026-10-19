@@ -17,8 +17,10 @@ Rails.application.routes.draw do
       end
       resources :sections, shallow: true do
         collection do
-          post :plan_voss
-          get  :export_voss
+          post   :plan_voss
+          get    :export_voss
+          post   :plan_aisle
+          delete :unplan_aisle
         end
         resources :levels
       end
