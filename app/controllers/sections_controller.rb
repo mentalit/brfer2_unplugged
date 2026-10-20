@@ -6,7 +6,7 @@ class SectionsController < ApplicationController
 
   # GET /sections or /sections.json
   def index
-    @sections        = @aisle.sections
+    @sections        = @aisle.sections.includes(:levels).order(:Sec_num)
     @voss_aisle      = VossPlannerService.voss_aisle?(@aisle)
     @aisle_plannable = AislePlannerService.plannable_aisle?(@aisle)
     store            = @aisle.store
@@ -19,11 +19,16 @@ class SectionsController < ApplicationController
 
     @end_date   = date_param(:end_date)
     @start_date = date_param(:start_date)
+    @max_fcst   = number_param(:max_fcst)
 
-    @placements = Placement.where(section_id: @sections.ids)
+    @placements = Placement.where(section_id: @sections.map(&:id))
                            .joins(:article).includes(:article)
                            .order(:new_slid)
                            .order(Article.arel_table[:FCST].desc.nulls_last)
+
+    # { section_id => { level_id => [placements] } }
+    @grouped = @placements.group_by(&:section_id)
+                          .transform_values { |ps| ps.group_by(&:level_id) }
   end
 
   # POST /aisles/:aisle_id/sections/plan_aisle
@@ -32,15 +37,17 @@ class SectionsController < ApplicationController
     pa         = params[:pa].presence&.to_i
     end_date   = date_param(:end_date)
     start_date = date_param(:start_date)
-    back       = aisle_sections_path(@aisle, hfb: hfb, pa: pa, end_date: end_date, start_date: start_date)
+    max_fcst   = number_param(:max_fcst)
+    back       = aisle_sections_path(@aisle, hfb: hfb, pa: pa, end_date: end_date,
+                                     start_date: start_date, max_fcst: max_fcst)
 
     unless AislePlannerService.plannable_aisle?(@aisle)
       redirect_to back, alert: "Aisle mode cannot plan aisle #{@aisle.aisle_num}."
       return
     end
 
-    r = AislePlannerService.new(@aisle, hfb: hfb, pa: pa,
-                                end_date: end_date, start_date: start_date).call
+    r = AislePlannerService.new(@aisle, hfb: hfb, pa: pa, end_date: end_date,
+                                start_date: start_date, max_fcst: max_fcst).call
 
     redirect_to back,
                 notice: "Aisle #{@aisle.aisle_num}: #{r[:candidates]} to plan — " \
@@ -61,7 +68,8 @@ class SectionsController < ApplicationController
     end
 
     redirect_to aisle_sections_path(@aisle, hfb: params[:hfb].presence, pa: params[:pa].presence,
-                                    end_date: params[:end_date].presence, start_date: params[:start_date].presence),
+                                    end_date: params[:end_date].presence, start_date: params[:start_date].presence,
+                                    max_fcst: params[:max_fcst].presence),
                 notice: "Aisle #{@aisle.aisle_num} emptied: #{removed} #{"placement".pluralize(removed)} removed."
   end
 

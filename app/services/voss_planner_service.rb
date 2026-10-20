@@ -3,6 +3,9 @@ class VossPlannerService
   VOSS_AISLE = "990100"
   MODE       = "voss"
 
+  # CP_Weight_Gross is stored in kg; the Weight limit is entered in g
+  KG_TO_G = 1000
+
   def self.voss_aisle?(aisle)
     aisle.aisle_num.to_s.strip == VOSS_AISLE
   end
@@ -15,11 +18,11 @@ class VossPlannerService
     @pa            = pa
     @article_limit = article_limit
     @max_fcst      = max_fcst
+    @max_weight_g  = max_weight
     @limits = {
-      "CP_Height"       => max_height,
-      "CP_Length"       => max_length,
-      "CP_Width"        => max_width,
-      "CP_Weight_Gross" => max_weight
+      "CP_Height" => max_height,  # mm
+      "CP_Length" => max_length,  # mm
+      "CP_Width"  => max_width    # mm
     }
   end
 
@@ -62,11 +65,19 @@ class VossPlannerService
 
   # Blank limit = no limit. With a limit set, the CP value must exist and be within it.
   def fits?(article)
-    @limits.all? do |column, max|
+    dims_ok = @limits.all? do |column, max|
       next true if max.nil?
       value = number(article[column])
       value && value <= max
     end
+
+    dims_ok && weight_ok?(article)
+  end
+
+  def weight_ok?(article)
+    return true if @max_weight_g.nil?
+    kg = number(article["CP_Weight_Gross"])
+    kg && (kg * KG_TO_G) <= @max_weight_g
   end
 
   def number(value)

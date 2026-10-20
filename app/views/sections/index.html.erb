@@ -12,6 +12,7 @@
     <%= form_with url: aisle_sections_path(@aisle), method: :get do |f| %>
       <%= f.hidden_field :end_date,   value: @end_date %>
       <%= f.hidden_field :start_date, value: @start_date %>
+      <%= f.hidden_field :max_fcst,   value: @max_fcst %>
 
       <%= f.label :hfb, "HFB" %>
       <%= f.select :hfb, @hfbs,
@@ -26,33 +27,43 @@
     <% end %>
 
     <% if @voss_aisle && @hfb %>
+      <%
+        voss_defaults = {
+          article_limit: 20000,
+          max_height:    127,      # mm
+          max_length:    1524,     # mm
+          max_width:     1524,     # mm
+          max_weight:    6803.89,  # g
+          max_fcst:      4
+        }
+      %>
       <%= form_with url: plan_voss_aisle_sections_path(@aisle) do |f| %>
         <%= f.hidden_field :hfb, value: @hfb %>
         <%= f.hidden_field :pa,  value: @pa %>
 
         <div>
           <%= f.label :article_limit, "Article limit" %>
-          <%= f.number_field :article_limit, min: 1 %>
+          <%= f.number_field :article_limit, value: voss_defaults[:article_limit], min: 1 %>
         </div>
         <div>
           <%= f.label :max_height, "Height (mm)" %>
-          <%= f.number_field :max_height, step: "any", min: 0 %>
+          <%= f.number_field :max_height, value: voss_defaults[:max_height], step: "any", min: 0 %>
         </div>
         <div>
           <%= f.label :max_length, "Length (mm)" %>
-          <%= f.number_field :max_length, step: "any", min: 0 %>
+          <%= f.number_field :max_length, value: voss_defaults[:max_length], step: "any", min: 0 %>
         </div>
         <div>
           <%= f.label :max_width, "Width (mm)" %>
-          <%= f.number_field :max_width, step: "any", min: 0 %>
+          <%= f.number_field :max_width, value: voss_defaults[:max_width], step: "any", min: 0 %>
         </div>
         <div>
-          <%= f.label :max_weight, "Weight" %>
-          <%= f.number_field :max_weight, step: "any", min: 0 %>
+          <%= f.label :max_weight, "Weight (g)" %>
+          <%= f.number_field :max_weight, value: voss_defaults[:max_weight], step: "any", min: 0 %>
         </div>
         <div>
           <%= f.label :max_fcst, "Max Fcst" %>
-          <%= f.number_field :max_fcst, step: "any", min: 0 %>
+          <%= f.number_field :max_fcst, value: voss_defaults[:max_fcst], step: "any", min: 0 %>
         </div>
 
         <%= f.submit @pa ? "Plan Voss (PA #{@pa})" : "Plan Voss (all of HFB #{@hfb})" %>
@@ -78,6 +89,10 @@
           <%= f.label :start_date, "Start Date Sale — plan blank or on/before" %>
           <%= f.date_field :start_date, value: @start_date %>
         </div>
+        <div>
+          <%= f.label :max_fcst, "Max Fcst" %>
+          <%= f.number_field :max_fcst, value: @max_fcst, step: "any", min: 0 %>
+        </div>
 
         <%= f.submit "Plan aisle #{@aisle.aisle_num}" +
                      (@pa ? " (PA #{@pa})" : @hfb ? " (HFB #{@hfb})" : "") %>
@@ -90,7 +105,7 @@
   <%= button_to "Unplan aisle #{@aisle.aisle_num}",
                 unplan_aisle_aisle_sections_path(@aisle),
                 method: :delete,
-                params: { hfb: @hfb, pa: @pa, end_date: @end_date, start_date: @start_date },
+                params: { hfb: @hfb, pa: @pa, end_date: @end_date, start_date: @start_date, max_fcst: @max_fcst },
                 form: { data: { turbo_confirm: "Remove every planned article from all sections in aisle #{@aisle.aisle_num}?" } } %>
 </p>
 
@@ -107,30 +122,72 @@
       <th>Status</th>
     </tr>
   </thead>
-  <tbody>
-    <% @placements.each do |p| %>
-      <% a = p.article %>
-      <% original = Array(a["SLID"]).map { |s| s.to_s.strip }.include?(p.new_slid) %>
-      <tr>
-        <td><%= Array(a["SLID"]).join(", ") %></td>
-        <td><%= p.new_slid %></td>
-        <td><%= link_to a["ARTNO"], article_path(a) %></td>
-        <td><%= a["ARTNAME_UNICODE"] %></td>
-        <td><%= a["DT"] %></td>
-        <td><%= p.quantity %></td>
-        <td><%= original ? "Original" : "Newly planned" %></td>
-      </tr>
-    <% end %>
-  </tbody>
-</table>
 
-<div id="sections">
   <% @sections.each do |section| %>
-    <%= render section %>
-    <p>
-      <%= link_to "Show this section", section %>
-    </p>
+    <% by_level = @grouped[section.id] || {} %>
+    <% levels   = section.levels.sort_by { |l| l.lev_num.to_i } %>
+    <tbody>
+      <tr style="background: #ddd;">
+        <th colspan="7" style="text-align: left;">
+          <%= link_to "Section #{format('%02d', section.Sec_num.to_i)}", section %>
+          — width <%= section.sec_width %> mm,
+          depth <%= section.sec_depth %> mm,
+          height <%= section.sec_height.presence || 2286 %> mm
+          (<%= by_level.values.sum(&:size) %> <%= "article".pluralize(by_level.values.sum(&:size)) %>)
+        </th>
+      </tr>
+
+      <% levels.each do |level| %>
+        <% rows = by_level[level.id] || [] %>
+        <tr style="background: #f2f2f2;">
+          <td colspan="7" style="padding-left: 1.5em;">
+            <strong>Level <%= level.lev_num %></strong>
+            <% if level.lev_height.to_f.positive? %>— height <%= level.lev_height %> mm<% end %>
+            (<%= rows.size %> <%= "article".pluralize(rows.size) %>)
+          </td>
+        </tr>
+
+        <% if rows.empty? %>
+          <tr><td colspan="7" style="padding-left: 3em;"><em>Empty</em></td></tr>
+        <% end %>
+
+        <% rows.each do |p| %>
+          <% a = p.article %>
+          <% original = Array(a["SLID"]).map { |s| s.to_s.strip }.include?(p.new_slid) %>
+          <tr>
+            <td style="padding-left: 3em;"><%= Array(a["SLID"]).join(", ") %></td>
+            <td><%= p.new_slid %></td>
+            <td><%= link_to a["ARTNO"], article_path(a) %></td>
+            <td><%= a["ARTNAME_UNICODE"] %></td>
+            <td><%= a["DT"] %></td>
+            <td><%= p.quantity %></td>
+            <td><%= original ? "Original" : "Newly planned" %></td>
+          </tr>
+        <% end %>
+      <% end %>
+
+      <% if by_level[nil].present? %>
+        <tr style="background: #f2f2f2;">
+          <td colspan="7" style="padding-left: 1.5em;">
+            <strong>No level</strong> (<%= by_level[nil].size %> <%= "article".pluralize(by_level[nil].size) %>)
+          </td>
+        </tr>
+        <% by_level[nil].each do |p| %>
+          <% a = p.article %>
+          <% original = Array(a["SLID"]).map { |s| s.to_s.strip }.include?(p.new_slid) %>
+          <tr>
+            <td style="padding-left: 3em;"><%= Array(a["SLID"]).join(", ") %></td>
+            <td><%= p.new_slid %></td>
+            <td><%= link_to a["ARTNO"], article_path(a) %></td>
+            <td><%= a["ARTNAME_UNICODE"] %></td>
+            <td><%= a["DT"] %></td>
+            <td><%= p.quantity %></td>
+            <td><%= original ? "Original" : "Newly planned" %></td>
+          </tr>
+        <% end %>
+      <% end %>
+    </tbody>
   <% end %>
-</div>
+</table>
 
 <%= link_to "New section", new_aisle_section_path(@aisle) %>

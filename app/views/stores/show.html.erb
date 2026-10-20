@@ -2,6 +2,8 @@
 
 <%= render @store %>
 
+<%= link_to "aisles", store_aisles_path(@store) %>
+
 <div>
   <%= link_to "Edit this store", edit_store_path(@store) %> |
   <%= link_to "Back to stores", stores_path %>
