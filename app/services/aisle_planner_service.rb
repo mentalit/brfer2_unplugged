@@ -59,7 +59,6 @@ class AislePlannerService
       @home_aisles = @store.aisles.select { |x| self.class.plannable_aisle?(x) }
                            .map { |x| x.aisle_num.to_i }.to_set
       reset_previous_plan
-      reclaim_moved_articles
 
       # ---------- STEP 1: articles already in this aisle (per the CSV) — NEVER moved ----------
       in_place = in_aisle_articles.filter_map do |a|
@@ -90,6 +89,7 @@ class AislePlannerService
       end
 
       # ---------- STEP 2: fill the remaining sec_width with articles from aisles 60–80 only ----------
+      # DT = 1 and heavy articles → level 00; DT = 0 → upper levels
       relocate = relocation_candidates
       result[:candidates] = relocate.size
 
@@ -97,9 +97,9 @@ class AislePlannerService
       upper_items  = []
       relocate.each do |a|
         item =
-          if heavy?(a) || (a["DT"] == 1 && !upper_slid?(a))
+          if heavy?(a) || a["DT"] == 1
             ground_item(a).tap { |i| ground_items << i if i }
-          elsif a["DT"] == 0 || a["DT"] == 1
+          elsif a["DT"] == 0
             upper_item(a).tap { |i| upper_items << i if i }
           end
         result[:skipped] += 1 unless item
@@ -117,6 +117,11 @@ class AislePlannerService
 
   # ---------- scopes ----------
 
+  # Articles that already have a new_slid are taken and never planned again
+  def eligible(scope)
+    scope.where(new_slid: [nil, ""])
+  end
+
   def not_srp4(scope)
     t = Article.arel_table
     scope.where(t[:SRP].eq(nil).or(t[:SRP].not_eq(4)))
@@ -129,19 +134,17 @@ class AislePlannerService
   end
 
   # Every article whose CSV slid_h is in this aisle, whatever HFB/PA/start date/FCST is selected.
-  # SRP = 4 and expired articles are not planned (their location is empty).
+  # Skipped: new_slid already set, SRP = 4, expired (their location is empty).
   def in_aisle_articles
-    voss_ids = Placement.where.not(mode: MODE).select(:article_id)
-    end_date_ok(not_srp4(@store.articles))
-      .where.not(id: voss_ids)
+    end_date_ok(not_srp4(eligible(@store.articles)))
       .to_a
       .select { |a| !self.class.reserved_article?(a) && aisle_slid(a) }
   end
 
-  # Only unplanned articles from aisles 60–80 that have no home in a regular aisle
+  # Only articles from aisles 60–80 with no new_slid and no home in a regular aisle
   def relocation_candidates
     t     = Article.arel_table
-    scope = end_date_ok(not_srp4(@store.articles.where(planned: [false, nil])))
+    scope = end_date_ok(not_srp4(eligible(@store.articles.where(planned: [false, nil]))))
     scope = scope.where(hfb: @hfb) if @hfb
     scope = scope.where(pa: @pa)   if @pa
     scope = scope.where(t[:Start_Date_Sale].eq(nil).or(t[:Start_Date_Sale].lteq(@start_date))) if @start_date
@@ -155,26 +158,13 @@ class AislePlannerService
     end
   end
 
+  # Removes this aisle's previous plan; those articles get new_slid cleared so they can be planned again
   def reset_previous_plan
     previous = Placement.where(mode: MODE, section_id: @sections.map(&:id))
     ids      = previous.distinct.pluck(:article_id)
     previous.delete_all
-    unplan_if_free(ids)
-  end
-
-  # Articles that belong in this aisle but an earlier run moved into another aisle come back here
-  def reclaim_moved_articles
-    moved = Placement.where(mode: MODE).where.not(section_id: @sections.map(&:id))
-                     .includes(:article).to_a
-                     .select { |p| aisle_slid(p.article) && !valid_slids(p.article).include?(p.new_slid) }
-    return if moved.empty?
-
-    Placement.where(id: moved.map(&:id)).delete_all
-    unplan_if_free(moved.map(&:article_id))
-  end
-
-  def unplan_if_free(ids)
     return if ids.empty?
+
     Article.where(id: ids).where.not(id: Placement.select(:article_id))
            .update_all(planned: false, new_slid: nil)
   end
@@ -191,11 +181,6 @@ class AislePlannerService
 
   def aisle_slid(a)
     valid_slids(a).find { |s| s[0, 2].to_i == @aisle_no }
-  end
-
-  def upper_slid?(a)
-    slid = valid_slids(a).first
-    slid.present? && slid[4, 2].to_i != GROUND
   end
 
   # A section spans several slid section numbers (e.g. section 04 holds 04, 05 and 06),
@@ -267,7 +252,8 @@ class AislePlannerService
     (item.units.to_f / per_col).ceil * item.width
   end
 
-  # Widest first, each into the first level with room, so every level's sec_width is packed
+  # Best fit, widest first: each article goes to the level where it leaves the smallest gap,
+  # so every level's sec_width is packed as full as possible
   def fill(items, bins, result)
     items.sort_by { |i| -i.width }.each do |item|
       if bins.any? && bins.none? { |b| item.length <= b.depth }
@@ -275,17 +261,25 @@ class AislePlannerService
         next
       end
 
-      placed = bins.any? do |b|
-        next false if item.length > b.depth
+      best   = nil
+      best_w = nil
+      bins.each do |b|
+        next if item.length > b.depth
         w = b.ground? ? item.width : upper_width(item, b)
-        next false unless w && w <= b.free
-
-        b.space.used += w
-        place(item.article, b, item.qty)
-        true
+        next unless w && w <= b.free
+        if best.nil? || (b.free - w) < (best.free - best_w)
+          best   = b
+          best_w = w
+        end
       end
 
-      placed ? result[:placed] += 1 : result[:no_room] += 1
+      if best
+        best.space.used += best_w
+        place(item.article, best, item.qty)
+        result[:placed] += 1
+      else
+        result[:no_room] += 1
+      end
     end
   end
 
