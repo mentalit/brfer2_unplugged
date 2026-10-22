@@ -1,6 +1,6 @@
 class ArticlesController < ApplicationController
   before_action :set_article, only: %i[ show edit update destroy ]
-  before_action :get_store, only: %i[ new create index ]
+  before_action :get_store, only: %i[ new create index totals ]
 
   # GET /articles or /articles.json
   def index
@@ -20,6 +20,26 @@ class ArticlesController < ApplicationController
   def edit
   end
 
+  def totals
+    
+    @total_article_count = @store.articles.where.not(SRP: 4).count
+
+    @planned_articles = @store.articles.where(planned: true)
+
+    @srp_4_articles = @store.articles.where(SRP: 4)
+
+   @unplanned = @store.articles
+.where.not(planned: true)
+.where.not(SRP: 4)
+.where('"End_Date_Sale" > ? OR "End_Date_Sale" IS NULL', Date.today)
+
+
+
+
+
+
+  end
+
       def import
     store = Store.find(params[:store_id])
 
@@ -31,19 +51,24 @@ class ArticlesController < ApplicationController
     r = ArticleUploadService.new(
       store,
       article_file: params[:article_file],
-      item_file: params[:item_file]
+      item_file: params[:item_file],
+      slm0002_file: params[:slm0002_file],
+      al010_file: params[:al010_file]
     ).call
 
     missing = r[:missing_mpq_artnos]
     missing_text = missing.any? ? " (#{missing.first(20).join(', ')}#{missing.size > 20 ? ', …' : ''})" : ""
 
     notice = "Created #{r[:created]}, updated #{r[:updated]}, unchanged #{r[:unchanged]}. " \
+             "Pre-planned at slid_h: #{r[:pre_planned]}. " \
+             "Placements created: #{r[:placements_created]} (no matching level: #{r[:placements_no_level]}). " \
              "Skipped: #{r[:skipped_division]} division, #{r[:skipped_expired_no_stock]} expired/no stock, " \
              "#{r[:skipped_future]} future, #{r[:skipped_no_artno]} no ARTNO. " \
              "No MPQ: #{r[:missing_mpq]}#{missing_text}. " \
              "Failed: #{r[:failed]} (MPQ still written: #{r[:mpq_forced]}). " \
              "Next start date: #{r[:next_start_date]&.strftime('%m/%d/%y') || 'none'}. " \
              "DWP file found: #{r[:item_file]}, matched #{r[:dwp_matched]} of #{r[:articles_total]} articles. " \
+             "SLM0002 matched: #{r[:slm0002_matched]}. Al010 matched: #{r[:al010_matched]}. " \
              "MPQ read from: #{r[:mpq_columns]}."
 
     redirect_to store_articles_path(store), notice: notice

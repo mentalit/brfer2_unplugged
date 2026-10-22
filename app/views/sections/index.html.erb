@@ -3,11 +3,23 @@
 
 <% content_for :title, "Sections" %>
 
+<%
+  pallet_aisle    = PalletPlannerService.pallet_aisle?(@aisle)
+  aisle_plannable = @aisle_plannable && !pallet_aisle
+%>
+
+<%# Every slid_h of an article, split and padded to 6 digits (10100 → 010100) %>
+<% slids_for = ->(a) {
+     Array(a["SLID"]).flat_map { |s| s.to_s.split(/[\s,;]+/) }
+                     .reject(&:empty?)
+                     .map { |s| s.match?(/\A\d{5}\z/) ? "0#{s}" : s }
+   } %>
+
 <h1>Sections — aisle <%= @aisle.aisle_num %></h1>
 
-<% if @voss_aisle || @aisle_plannable %>
+<% if @voss_aisle || pallet_aisle || aisle_plannable %>
   <div id="planner">
-    <h2><%= @voss_aisle ? "Voss planner" : "Aisle planner" %></h2>
+    <h2><%= @voss_aisle ? "Voss planner" : pallet_aisle ? "PALLET planner" : "Aisle planner" %></h2>
 
     <%= form_with url: aisle_sections_path(@aisle), method: :get do |f| %>
       <%= f.hidden_field :end_date,   value: @end_date %>
@@ -16,7 +28,7 @@
 
       <%= f.label :hfb, "HFB" %>
       <%= f.select :hfb, @hfbs,
-                   { include_blank: (@voss_aisle ? "Select HFB" : "All HFBs"), selected: @hfb },
+                   { include_blank: (@voss_aisle || pallet_aisle ? "Select HFB" : "All HFBs"), selected: @hfb },
                    onchange: "this.form.requestSubmit()" %>
 
       <% if @hfb %>
@@ -76,7 +88,62 @@
       </p>
     <% end %>
 
-    <% if @aisle_plannable %>
+    <% if pallet_aisle && @hfb %>
+      <%
+        pallet_defaults = {
+          article_limit: 50,
+          max_height:    2286,  # mm
+          max_length:    2286,  # mm
+          max_width:     2286,  # mm
+          max_weight:    2286,  # g
+          max_fcst:      0.1,
+          max_palq:      2
+        }
+      %>
+      <%= form_with url: plan_pallet_aisle_sections_path(@aisle) do |f| %>
+        <%= f.hidden_field :hfb, value: @hfb %>
+        <%= f.hidden_field :pa,  value: @pa %>
+
+        <div>
+          <%= f.label :article_limit, "Article limit" %>
+          <%= f.number_field :article_limit, value: pallet_defaults[:article_limit], min: 1 %>
+        </div>
+        <div>
+          <%= f.label :max_height, "Height (mm)" %>
+          <%= f.number_field :max_height, value: pallet_defaults[:max_height], step: "any", min: 0 %>
+        </div>
+        <div>
+          <%= f.label :max_length, "Length (mm)" %>
+          <%= f.number_field :max_length, value: pallet_defaults[:max_length], step: "any", min: 0 %>
+        </div>
+        <div>
+          <%= f.label :max_width, "Width (mm)" %>
+          <%= f.number_field :max_width, value: pallet_defaults[:max_width], step: "any", min: 0 %>
+        </div>
+        <div>
+          <%= f.label :max_weight, "Weight (g)" %>
+          <%= f.number_field :max_weight, value: pallet_defaults[:max_weight], step: "any", min: 0 %>
+        </div>
+        <div>
+          <%= f.label :max_fcst, "Max Fcst" %>
+          <%= f.number_field :max_fcst, value: pallet_defaults[:max_fcst], step: "any", min: 0 %>
+        </div>
+        <div>
+          <%= f.label :max_palq, "PALQ (max)" %>
+          <%= f.number_field :max_palq, value: pallet_defaults[:max_palq], step: "any", min: 0 %>
+        </div>
+
+        <%= f.submit @pa ? "Plan PALLET (PA #{@pa})" : "Plan PALLET (all of HFB #{@hfb})" %>
+      <% end %>
+
+      <p>
+        <%= link_to "Export PALLET CSV",
+                    export_pallet_aisle_sections_path(@aisle, hfb: @hfb, pa: @pa, format: :csv),
+                    data: { turbo: false } %>
+      </p>
+    <% end %>
+
+    <% if aisle_plannable %>
       <%= form_with url: plan_aisle_aisle_sections_path(@aisle) do |f| %>
         <%= f.hidden_field :hfb, value: @hfb %>
         <%= f.hidden_field :pa,  value: @pa %>
@@ -152,10 +219,11 @@
         <% end %>
 
         <% rows.each do |p| %>
-          <% a = p.article %>
-          <% original = Array(a["SLID"]).map { |s| s.to_s.strip }.include?(p.new_slid) %>
+          <% a        = p.article %>
+          <% slids    = slids_for.call(a) %>
+          <% original = slids.include?(p.new_slid.to_s.strip) %>
           <tr>
-            <td style="padding-left: 3em;"><%= Array(a["SLID"]).join(", ") %></td>
+            <td style="padding-left: 3em;"><%= slids.join(", ") %></td>
             <td><%= p.new_slid %></td>
             <td><%= link_to a["ARTNO"], article_path(a) %></td>
             <td><%= a["ARTNAME_UNICODE"] %></td>
@@ -173,10 +241,11 @@
           </td>
         </tr>
         <% by_level[nil].each do |p| %>
-          <% a = p.article %>
-          <% original = Array(a["SLID"]).map { |s| s.to_s.strip }.include?(p.new_slid) %>
+          <% a        = p.article %>
+          <% slids    = slids_for.call(a) %>
+          <% original = slids.include?(p.new_slid.to_s.strip) %>
           <tr>
-            <td style="padding-left: 3em;"><%= Array(a["SLID"]).join(", ") %></td>
+            <td style="padding-left: 3em;"><%= slids.join(", ") %></td>
             <td><%= p.new_slid %></td>
             <td><%= link_to a["ARTNO"], article_path(a) %></td>
             <td><%= a["ARTNAME_UNICODE"] %></td>

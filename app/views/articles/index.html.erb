@@ -15,12 +15,20 @@
 
 <%= form_with url: import_store_articles_path(@store), multipart: true do |f| %>
   <div>
-    <%= f.label :article_file, "Article CSV (ARTNO / DIV / AVAILSTOCK)" %>
+    <%= f.label :article_file, "Article CSV (slm0003 / Dash)" %>
     <%= f.file_field :article_file, accept: ".csv,.txt,.tsv" %>
   </div>
   <div>
-    <%= f.label :item_file, "Item CSV (Item No / Start Date Sale / CP / UL)" %>
+    <%= f.label :item_file, "DWP CSV" %>
     <%= f.file_field :item_file, accept: ".csv,.txt,.tsv" %>
+  </div>
+  <div>
+    <%= f.label :slm0002_file, "SLM0002 CSV (fills empty CP / UL measurements)" %>
+    <%= f.file_field :slm0002_file, accept: ".csv,.txt,.tsv" %>
+  </div>
+  <div>
+    <%= f.label :al010_file, "Al010 CSV (fills empty Start / End Date Sale)" %>
+    <%= f.file_field :al010_file, accept: ".csv,.txt,.tsv" %>
   </div>
   <%= f.submit "Upload Articles" %>
 <% end %>

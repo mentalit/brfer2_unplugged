@@ -6,9 +6,9 @@
     "bootstrap": "^5.3.8",
     "bootstrap-icons": "^1.13.2",
     "nodemon": "^3.1.14",
-    "postcss": "^8.5.29",
+    "postcss": "^8.5.31",
     "postcss-cli": "^12.0.0",
-    "sass": "^1.105.1"
+    "sass": "^1.105.2"
   },
   "scripts": {
     "build:css:compile": "sass ./app/assets/stylesheets/application.bootstrap.scss:./app/assets/builds/application.css --no-source-map --load-path=node_modules",

@@ -22,6 +22,18 @@ class AislePlannerService
 
   Item = Struct.new(:article, :width, :length, :height, :units, :qty, keyword_init: true)
 
+  # Every slid_h of an article, split and padded to 6 digits (10100 → 010100)
+  def self.slids(article)
+    Array(article["SLID"]).flat_map { |s| s.to_s.split(/[\s,;]+/) }
+                          .reject(&:empty?)
+                          .map { |s| pad(s) }
+  end
+
+  def self.pad(slid)
+    s = slid.to_s.strip
+    s.match?(/\A\d{5}\z/) ? "0#{s}" : s
+  end
+
   # Aisles 60–80: any location there counts as no location
   def self.no_location_aisle?(num)
     NO_LOCATION.cover?(num)
@@ -35,7 +47,7 @@ class AislePlannerService
 
   # Articles with a slid_h of PALLET or 990101 can only be planned in VOSS or PALLET aisles
   def self.reserved_article?(article)
-    Array(article["SLID"]).any? { |s| RESERVED_SLIDS.include?(s.to_s.strip.upcase) }
+    slids(article).any? { |s| RESERVED_SLIDS.include?(s.upcase) }
   end
 
   def initialize(aisle, hfb: nil, pa: nil, end_date: nil, start_date: nil, max_fcst: nil)
@@ -61,10 +73,12 @@ class AislePlannerService
       reset_previous_plan
 
       # ---------- STEP 1: articles already in this aisle (per the CSV) — NEVER moved ----------
-      in_place = in_aisle_articles.filter_map do |a|
-        slid = aisle_slid(a)
-        loc  = locate(slid)
-        loc ? [a, slid, loc] : (result[:skipped] += 1; nil)
+      # One placement for EVERY slid_h the article has in this aisle
+      in_place = in_aisle_articles.flat_map do |a|
+        aisle_slids(a).filter_map do |slid|
+          loc = locate(slid)
+          loc ? [a, slid, loc] : (result[:skipped] += 1; nil)
+        end
       end
 
       build_bins
@@ -117,11 +131,6 @@ class AislePlannerService
 
   # ---------- scopes ----------
 
-  # Articles that already have a new_slid are taken and never planned again
-  def eligible(scope)
-    scope.where(new_slid: [nil, ""])
-  end
-
   def not_srp4(scope)
     t = Article.arel_table
     scope.where(t[:SRP].eq(nil).or(t[:SRP].not_eq(4)))
@@ -133,18 +142,23 @@ class AislePlannerService
     scope.where(t[:End_Date_Sale].eq(nil).or(t[:End_Date_Sale].gt(@end_date)))
   end
 
-  # Every article whose CSV slid_h is in this aisle, whatever HFB/PA/start date/FCST is selected.
-  # Skipped: new_slid already set, SRP = 4, expired (their location is empty).
+  # Every article with a CSV slid_h in this aisle, whatever HFB/PA/start date/FCST is selected.
+  # Skipped: SRP = 4, expired, or a new_slid that is not one of its own CSV locations
+  # (manually assigned or moved elsewhere).
   def in_aisle_articles
-    end_date_ok(not_srp4(eligible(@store.articles)))
+    end_date_ok(not_srp4(@store.articles))
       .to_a
-      .select { |a| !self.class.reserved_article?(a) && aisle_slid(a) }
+      .select do |a|
+        next false if self.class.reserved_article?(a)
+        next false if aisle_slids(a).empty?
+        a.new_slid.blank? || valid_slids(a).include?(self.class.pad(a.new_slid))
+      end
   end
 
   # Only articles from aisles 60–80 with no new_slid and no home in a regular aisle
   def relocation_candidates
     t     = Article.arel_table
-    scope = end_date_ok(not_srp4(eligible(@store.articles.where(planned: [false, nil]))))
+    scope = end_date_ok(not_srp4(@store.articles.where(planned: [false, nil], new_slid: [nil, ""])))
     scope = scope.where(hfb: @hfb) if @hfb
     scope = scope.where(pa: @pa)   if @pa
     scope = scope.where(t[:Start_Date_Sale].eq(nil).or(t[:Start_Date_Sale].lteq(@start_date))) if @start_date
@@ -158,7 +172,7 @@ class AislePlannerService
     end
   end
 
-  # Removes this aisle's previous plan; those articles get new_slid cleared so they can be planned again
+  # Removes this aisle's previous plan; articles left with no placement get new_slid cleared
   def reset_previous_plan
     previous = Placement.where(mode: MODE, section_id: @sections.map(&:id))
     ids      = previous.distinct.pluck(:article_id)
@@ -171,16 +185,13 @@ class AislePlannerService
 
   # ---------- slid_h (AASSLL) ----------
 
-  # 5-digit slids lost their leading zero (10400 → 010400)
   def valid_slids(a)
-    Array(a["SLID"]).map do |s|
-      s = s.to_s.strip
-      s.match?(/\A\d{5}\z/) ? "0#{s}" : s
-    end.select { |s| SLID_FORMAT.match?(s) }
+    self.class.slids(a).select { |s| SLID_FORMAT.match?(s) }
   end
 
-  def aisle_slid(a)
-    valid_slids(a).find { |s| s[0, 2].to_i == @aisle_no }
+  # All of the article's slid_h's in this aisle
+  def aisle_slids(a)
+    valid_slids(a).select { |s| s[0, 2].to_i == @aisle_no }.uniq
   end
 
   # A section spans several slid section numbers (e.g. section 04 holds 04, 05 and 06),
@@ -283,11 +294,16 @@ class AislePlannerService
     end
   end
 
+  # The article keeps its first location as new_slid; every location gets its own placement
   def place(article, bin, qty, slid = nil)
     slid ||= format("%02d%02d%02d", @aisle_no, bin.section.Sec_num.to_i, bin.level.lev_num.to_i)
     Placement.create!(store: @store, article: article, section_id: bin.section.id,
                       level_id: bin.level.id, mode: MODE, new_slid: slid, quantity: qty)
-    article.update_columns(planned: true, new_slid: slid)
+    if article.new_slid.blank?
+      article.update_columns(planned: true, new_slid: slid)
+    else
+      article.update_columns(planned: true)
+    end
   end
 
   # ---------- measurements (mm) and weight (g) ----------

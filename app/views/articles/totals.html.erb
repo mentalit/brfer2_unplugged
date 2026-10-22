@@ -1,0 +1,11 @@
+<h1><%= @total_article_count %></h1>
+
+planned: <%= @planned_articles.count %> <br>
+
+Unplanned: <%= @unplanned.count %> <br>
+
+
+SRP 4 articles: <%= @srp_4_articles.count %><br>
+<% @unplanned.each do |x| %>
+	<%= link_to x.ARTNAME_UNICODE, x  %> <br>
+	<% end %>

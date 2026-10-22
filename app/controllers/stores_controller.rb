@@ -19,6 +19,8 @@ class StoresController < ApplicationController
   def edit
   end
 
+  
+
   # POST /stores or /stores.json
   def create
     @store = Store.new(store_params)
