@@ -78,6 +78,10 @@
           <%= f.label :max_fcst, "Max Fcst" %>
           <%= f.number_field :max_fcst, value: voss_defaults[:max_fcst], step: "any", min: 0 %>
         </div>
+        <div>
+          <%= f.label :exclude_names, "Exclude article names (separate with commas)" %>
+          <%= f.text_field :exclude_names, value: session[:voss_exclude_names], placeholder: "e.g. SKOGSTA, LACK" %>
+        </div>
 
         <%= f.submit @pa ? "Plan Voss (PA #{@pa})" : "Plan Voss (all of HFB #{@hfb})" %>
       <% end %>

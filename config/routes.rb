@@ -14,6 +14,8 @@ Rails.application.routes.draw do
         get :totals
         get :non_srp_4
         get :search
+        get :planned_basement
+
       end
     end
     resources :aisles, shallow: true do

@@ -116,6 +116,9 @@ class SectionsController < ApplicationController
       return
     end
 
+    # Remember the excluded names for the next Voss planning (kept in this browser's session)
+    session[:voss_exclude_names] = params[:exclude_names].to_s.strip
+
     count = VossPlannerService.new(
       @aisle.store,
       section:       sections.first,
@@ -126,7 +129,8 @@ class SectionsController < ApplicationController
       max_length:    number_param(:max_length),
       max_width:     number_param(:max_width),
       max_weight:    number_param(:max_weight),
-      max_fcst:      number_param(:max_fcst)
+      max_fcst:      number_param(:max_fcst),
+      exclude_names: params[:exclude_names]
     ).call
 
     scope = pa ? "PA #{pa}" : "HFB #{hfb}"

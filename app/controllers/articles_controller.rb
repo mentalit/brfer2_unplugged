@@ -4,7 +4,7 @@
 
 class ArticlesController < ApplicationController
   before_action :set_article, only: %i[ show edit update destroy ]
-  before_action :get_store, only: %i[ new create index totals non_srp_4 search ]
+  before_action :get_store, only: %i[ new create index totals non_srp_4 search planned_basement ]
 
   # GET /articles or /articles.json
   def index
@@ -69,6 +69,33 @@ class ArticlesController < ApplicationController
     @non_srp_4 = @store.articles
                        .where(SRP: 4)
                        .where('? = ANY("SLID")', "990101")
+  end
+
+  def planned_basement
+
+
+    @planned_basement = @store.articles.where(
+  '"SRP" != ? AND "planned" = ? AND EXISTS (
+    SELECT 1
+    FROM unnest(articles."SLID") AS s(value)
+    WHERE s.value ~ \'^[0-9]+$\'
+      AND s.value::integer BETWEEN ? AND ?
+  )',
+  4, true, 580100, 810000
+)
+  
+#     @planned_basement = @store.articles.where(
+#   '"SRP" != ? AND EXISTS (
+#     SELECT 1
+#     FROM unnest(articles."SLID") AS s(value)
+#     WHERE s.value ~ \'^[0-9]+$\'
+#       AND s.value::integer BETWEEN ? AND ?
+#   )',
+#   4, 580100, 810000
+# )
+
+
+
   end
 
   def import

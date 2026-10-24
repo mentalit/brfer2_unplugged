@@ -11,7 +11,7 @@ class VossPlannerService
   end
 
   def initialize(store, section:, hfb:, pa: nil, article_limit: nil, max_height: nil, max_length: nil,
-                 max_width: nil, max_weight: nil, max_fcst: nil)
+                 max_width: nil, max_weight: nil, max_fcst: nil, exclude_names: nil)
     @store         = store
     @section       = section
     @hfb           = hfb
@@ -19,6 +19,8 @@ class VossPlannerService
     @article_limit = article_limit
     @max_fcst      = max_fcst
     @max_weight_g  = max_weight
+    # "SKOGSTA, LACK" → ["SKOGSTA", "LACK"]; any article whose name contains one is skipped
+    @exclude_names = exclude_names.to_s.split(",").map(&:strip).reject(&:empty?)
     @limits = {
       "CP_Height" => max_height,  # mm
       "CP_Length" => max_length,  # mm
@@ -54,12 +56,17 @@ class VossPlannerService
 
   private
 
-  # Unplanned articles in the HFB (and PA if given) with DT = 0 and SRP not 4, highest FCST first
+  # Unplanned articles in the HFB (and PA if given) with DT = 0 and SRP not 4, highest FCST first.
+  # Articles whose name contains an excluded name (not case sensitive) are never planned.
   def candidates
     scope = @store.articles.where(hfb: @hfb, DT: 0, planned: [false, nil])
     scope = scope.where('"articles"."SRP" IS DISTINCT FROM 4')
     scope = scope.where(pa: @pa) if @pa
     scope = scope.where(FCST: ..@max_fcst) if @max_fcst
+    @exclude_names.each do |name|
+      pattern = "%#{ActiveRecord::Base.sanitize_sql_like(name)}%"
+      scope = scope.where('"articles"."ARTNAME_UNICODE" IS NULL OR "articles"."ARTNAME_UNICODE" NOT ILIKE ?', pattern)
+    end
     scope.order(Article.arel_table[:FCST].desc.nulls_last)
   end
 

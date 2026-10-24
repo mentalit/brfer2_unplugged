@@ -97,6 +97,55 @@ class AislePlannerService
     section && [section, level_for(section, slid)]
   end
 
+  # Manual planning: what doesn't fit at a manual placement (empty = it fits).
+  # Only a warning — the manual placement always stays. Voss / PALLET have no space limits.
+  # Same measurements the planner uses: level 00 = UL (CP if missing), upper levels = CP,
+  # height on upper levels = CP_Height × ASSQ.
+  def self.manual_fit_problems(placement)
+    level = placement.level
+    return [] unless level
+
+    section = placement.section
+    article = placement.article
+    ground  = level.lev_num.to_i == GROUND
+    num     = ->(v) { v.to_s.tr(",", ".").to_f }
+    first   = ->(*vals) { vals.find(&:positive?) || 0.0 }
+    mm      = ->(v) { "#{v.round} mm" }
+    width   = ->(a) { ground ? first.(num.(a["UL_Width_Gross"]), num.(a["CP_Width"])) : num.(a["CP_Width"]) }
+
+    problems = []
+
+    # Width: everything else already on this level + this article must fit sec_width
+    used = Placement.where(level_id: level.id).where.not(id: placement.id)
+                    .includes(:article).sum { |p| width.(p.article) }
+    free = num.(section.sec_width) - used
+    w    = width.(article)
+    if w > free
+      problems << "#{mm.(w - free)} over the level's free width (article #{mm.(w)} wide, #{mm.([free, 0].max)} free)"
+    end
+
+    # Depth
+    length = ground ? first.(num.(article["UL_Length_Gross"]), num.(article["CP_Length"])) : num.(article["CP_Length"])
+    depth  = num.(section.sec_depth)
+    if depth.positive? && length > depth
+      problems << "#{mm.(length - depth)} too deep (article #{mm.(length)}, section #{mm.(depth)})"
+    end
+
+    # Height
+    height = if ground
+               first.(num.(article["UL_Height_Gross"]), num.(article["CP_Height"]))
+             else
+               num.(article["CP_Height"]) * [article["ASSQ"].to_i, 1].max
+             end
+    sec_h = num.(section.sec_height)
+    sec_h = DEFAULT_SEC_HEIGHT unless sec_h.positive?
+    if height > sec_h
+      problems << "#{mm.(height - sec_h)} too tall (article #{mm.(height)}, section #{mm.(sec_h)})"
+    end
+
+    problems
+  end
+
   def initialize(aisle, hfb: nil, pa: nil, end_date: nil, start_date: nil, max_fcst: nil)
     @aisle      = aisle
     @aisle_no   = aisle.aisle_num.to_i
