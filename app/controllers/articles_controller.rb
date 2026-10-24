@@ -1,6 +1,10 @@
+# article_controller.rb
+
+# article_controller.rb
+
 class ArticlesController < ApplicationController
   before_action :set_article, only: %i[ show edit update destroy ]
-  before_action :get_store, only: %i[ new create index totals ]
+  before_action :get_store, only: %i[ new create index totals non_srp_4 search ]
 
   # GET /articles or /articles.json
   def index
@@ -20,27 +24,54 @@ class ArticlesController < ApplicationController
   def edit
   end
 
+  def search
+    @query = params[:q].to_s.strip
+
+    if @query.blank?
+      redirect_to store_articles_path(@store), alert: "Enter an article number or name to search."
+      return
+    end
+
+    digits = @query.gsub(/[^0-9A-Za-z]/, "")
+
+    @results = @store.articles
+      .where(
+        %(REPLACE(CAST("ARTNO" AS TEXT), '.', '') ILIKE :digits OR "ARTNAME_UNICODE" ILIKE :name),
+        digits: "%#{digits}%",
+        name: "%#{@query}%"
+      )
+      .order(:ARTNO)
+      .limit(100)
+
+    exact = @results.find { |a| a.ARTNO.to_s.delete(".") == digits }
+
+    if exact
+      redirect_to article_path(exact)
+    elsif @results.size == 1
+      redirect_to article_path(@results.first)
+    end
+  end
+
   def totals
-    
     @total_article_count = @store.articles.where.not(SRP: 4).count
 
     @planned_articles = @store.articles.where(planned: true)
 
-    @srp_4_articles = @store.articles.where(SRP: 4)
+    @srp_4_articles = @store.articles.where(SRP: 4).sort_by { |x| x.ARTNO }
 
-   @unplanned = @store.articles
-.where.not(planned: true)
-.where.not(SRP: 4)
-.where('"End_Date_Sale" > ? OR "End_Date_Sale" IS NULL', Date.today)
-
-
-
-
-
-
+    @unplanned = @store.articles
+      .where.not(planned: true)
+      .where.not(SRP: 4)
+      .where('"End_Date_Sale" > ? OR "End_Date_Sale" IS NULL', Date.today)
   end
 
-      def import
+  def non_srp_4
+    @non_srp_4 = @store.articles
+                       .where(SRP: 4)
+                       .where('? = ANY("SLID")', "990101")
+  end
+
+  def import
     store = Store.find(params[:store_id])
 
     if params[:article_file].blank? && params[:item_file].blank?
@@ -92,10 +123,15 @@ class ArticlesController < ApplicationController
   end
 
   # PATCH/PUT /articles/1 or /articles/1.json
+  # Editing new_slid here = manual planning: the article is placed at that location, always
   def update
+    @article.manual_planning = true
+
     respond_to do |format|
       if @article.update(article_params)
-        format.html { redirect_to @article, notice: "Article was successfully updated.", status: :see_other }
+        notice = "Article was successfully updated."
+        notice += " Manually planned at #{@article.new_slid}." if @article.placements.exists?(mode: AislePlannerService::MANUAL_MODE)
+        format.html { redirect_to @article, notice: notice, status: :see_other }
         format.json { render :show, status: :ok, location: @article }
       else
         format.html { render :edit, status: :unprocessable_content }
@@ -115,13 +151,18 @@ class ArticlesController < ApplicationController
   end
 
   private
-    # Use callbacks to share common setup or constraints between actions.
     def set_article
       @article = Article.find(params.expect(:id))
     end
 
-    # Only allow a list of trusted parameters through.
     def article_params
-      params.expect(article: [ :hfb, :pa, :ARTNO, :ARTNAME_UNICODE, :SLID, :DIV, :ASSQ, :SSQ, :DTFP, :DTFP_PLUS, :MIN, :MAX, :RSSQ, :SRP, :DT, :PALQ, :MPQ, :Item_No, :CP_Sale_Sol_Name, :CP_Length, :CP_Width, :CP_Height, :CP_Weight_Gross, :UL_Sale_Sol_Name, :UL_Length_Gross, :UL_Width_Gross, :UL_Height_Gross, :planned, :new_slid, :Start_Date_Sale, :End_Date_Sale, :FCST, :AVAILSTOCK, :linked_families, :store_id ])
+      permitted = params.expect(article: [ :hfb, :pa, :ARTNO, :ARTNAME_UNICODE, :SLID, :DIV, :ASSQ, :SSQ, :DTFP, :DTFP_PLUS, :MIN, :MAX, :RSSQ, :SRP, :DT, :PALQ, :MPQ, :Item_No, :CP_Sale_Sol_Name, :CP_Length, :CP_Width, :CP_Height, :CP_Weight_Gross, :UL_Sale_Sol_Name, :UL_Length_Gross, :UL_Width_Gross, :UL_Height_Gross, :planned, :new_slid, :Start_Date_Sale, :End_Date_Sale, :FCST, :AVAILSTOCK, :linked_families, :store_id ])
+
+      # SLID is typed as "010100, 010200" → ["010100", "010200"]
+      if permitted.key?(:SLID)
+        permitted[:SLID] = permitted[:SLID].to_s.split(/[\s,;{}"]+/).reject(&:blank?).uniq
+      end
+
+      permitted
     end
 end

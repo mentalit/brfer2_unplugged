@@ -10,11 +10,29 @@
   </div>
 
   <div>
-    <strong>Checkstring:</strong>
-    <%= aisle.CHECKSTRING %>
+    <strong>Maxlength:</strong>
+    <%= aisle.MAXLENGTH %>
   </div>
 
   <div>
+    <strong>Racktype:</strong>
+    <%= aisle.RACKTYPE %>
+  </div>
+
+  
+
+  <% if action_name != 'index' %>
+    <strong>Division:</strong>
+    <%= aisle.DIVISION %>
+  </div>
+
+  <div>
+    <strong>Maxwidth:</strong>
+    <%= aisle.MAXWIDTH %>
+  </div>
+
+
+   <div>
     <strong>Loc:</strong>
     <%= aisle.LOC %>
   </div>
@@ -24,30 +42,17 @@
     <%= aisle.TYPE %>
   </div>
 
-  <div>
-    <strong>Maxlength:</strong>
-    <%= aisle.MAXLENGTH %>
-  </div>
-
-  <div>
-    <strong>Maxwidth:</strong>
-    <%= aisle.MAXWIDTH %>
-  </div>
-
-  <div>
-    <strong>Division:</strong>
-    <%= aisle.DIVISION %>
-  </div>
-
-  <div>
-    <strong>Racktype:</strong>
-    <%= aisle.RACKTYPE %>
+   <div>
+    <strong>Checkstring:</strong>
+    <%= aisle.CHECKSTRING %>
   </div>
 
   <div>
     <strong>Store:</strong>
     <%= aisle.store_id %>
   </div>
+
+  <% end %>
 
   <div>
     <%= link_to "Sections", aisle_sections_path(aisle) %>

@@ -1,5 +1,5 @@
 class Placement < ApplicationRecord
-  MODES = %w[voss pallet aisles].freeze
+  MODES = %w[voss pallet aisles manual].freeze
 
   belongs_to :store
   belongs_to :article

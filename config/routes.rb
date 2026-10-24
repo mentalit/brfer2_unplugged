@@ -12,6 +12,8 @@ Rails.application.routes.draw do
       collection do
         post :import
         get :totals
+        get :non_srp_4
+        get :search
       end
     end
     resources :aisles, shallow: true do
@@ -26,6 +28,7 @@ Rails.application.routes.draw do
           get    :export_pallet, to: "pallet_plans#export"
           post   :plan_aisle
           delete :unplan_aisle
+          delete :unassign_article
         end
         resources :levels
       end

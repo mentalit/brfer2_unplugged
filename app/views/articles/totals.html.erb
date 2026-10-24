@@ -6,6 +6,9 @@ Unplanned: <%= @unplanned.count %> <br>
 
 
 SRP 4 articles: <%= @srp_4_articles.count %><br>
+
+
+<h1>Unplanned Articles (SRP 1)</h1>
 <% @unplanned.each do |x| %>
 	<%= link_to x.ARTNAME_UNICODE, x  %> <br>
 	<% end %>

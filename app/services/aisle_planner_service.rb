@@ -1,6 +1,7 @@
 class AislePlannerService
   # All measurements are in mm (articles CP_/UL_, sections, levels, aisles); weights in grams
   MODE               = "aisles"
+  MANUAL_MODE        = "manual"
   EXCLUDED_AISLES    = %w[VOSS 990100 PALLET].freeze
   RESERVED_SLIDS     = %w[PALLET 990101].freeze
   NO_LOCATION        = (60..80)
@@ -22,16 +23,16 @@ class AislePlannerService
 
   Item = Struct.new(:article, :width, :length, :height, :units, :qty, keyword_init: true)
 
+  def self.pad(slid)
+    s = slid.to_s.strip
+    s.match?(/\A\d{5}\z/) ? "0#{s}" : s
+  end
+
   # Every slid_h of an article, split and padded to 6 digits (10100 → 010100)
   def self.slids(article)
     Array(article["SLID"]).flat_map { |s| s.to_s.split(/[\s,;]+/) }
                           .reject(&:empty?)
                           .map { |s| pad(s) }
-  end
-
-  def self.pad(slid)
-    s = slid.to_s.strip
-    s.match?(/\A\d{5}\z/) ? "0#{s}" : s
   end
 
   # Aisles 60–80: any location there counts as no location
@@ -50,6 +51,52 @@ class AislePlannerService
     slids(article).any? { |s| RESERVED_SLIDS.include?(s.upcase) }
   end
 
+  # A section spans several slid section numbers (e.g. section 04 holds 04, 05 and 06),
+  # so the slid goes to the highest Sec_num at or below its SS
+  def self.section_for(sections, slid)
+    ss = slid[2, 2].to_i
+    sections.select { |s| s.Sec_num.to_i <= ss }.max_by { |s| s.Sec_num.to_i }
+  end
+
+  # The slid's level; a missing level is created
+  def self.level_for(section, slid)
+    section.levels.to_a.find { |l| l.lev_num.to_i == slid[4, 2].to_i } ||
+      section.levels.create!(lev_num: slid[4, 2], lev_depth: section.sec_depth,
+                             lev_width: section.sec_width.to_s)
+  end
+
+  def self.section_level(sections, slid)
+    section = section_for(sections, slid)
+    section && [section, level_for(section, slid)]
+  end
+
+  # new_slid as typed on the form: trimmed, upper case, 5 digits padded to 6 (10300 → 010300)
+  def self.normalize_slid(value)
+    pad(value).upcase
+  end
+
+  # Manual planning: [section, level] for a new_slid typed on the article form, in ANY aisle.
+  #   990100 → the Voss aisle's section, PALLET → the PALLET aisle's section (no level)
+  #   AASSLL → aisle AA, section SS, level LL. Aisles can share a number (12 FS, 12 SS):
+  #            every one is checked and the slid goes to the closest section.
+  def self.manual_location(store, slid)
+    aisles = store.aisles.includes(sections: :levels).to_a
+
+    if [VossPlannerService::NEW_SLID, PalletPlannerService::NEW_SLID].include?(slid)
+      aisle   = aisles.find { |a| a.aisle_num.to_s.strip.upcase == slid }
+      section = aisle&.sections.to_a.min_by { |s| s.Sec_num.to_i }
+      return section && [section, nil]
+    end
+
+    return nil unless SLID_FORMAT.match?(slid)
+
+    section = aisles.reject { |a| EXCLUDED_AISLES.include?(a.aisle_num.to_s.strip.upcase) }
+                    .select { |a| a.aisle_num.to_i == slid[0, 2].to_i }
+                    .filter_map { |a| section_for(a.sections.to_a, slid) }
+                    .max_by { |s| s.Sec_num.to_i }
+    section && [section, level_for(section, slid)]
+  end
+
   def initialize(aisle, hfb: nil, pa: nil, end_date: nil, start_date: nil, max_fcst: nil)
     @aisle      = aisle
     @aisle_no   = aisle.aisle_num.to_i
@@ -61,9 +108,9 @@ class AislePlannerService
     @max_fcst   = max_fcst
   end
 
-  # Returns { candidates:, in_place:, placed:, no_room:, too_deep:, skipped: }
+  # Returns { candidates:, manual:, in_place:, placed:, no_room:, too_deep:, skipped: }
   def call
-    result = { candidates: 0, in_place: 0, placed: 0, no_room: 0, too_deep: 0, skipped: 0 }
+    result = { candidates: 0, manual: 0, in_place: 0, placed: 0, no_room: 0, too_deep: 0, skipped: 0 }
     return result unless self.class.plannable_aisle?(@aisle)
 
     ActiveRecord::Base.transaction do
@@ -72,28 +119,26 @@ class AislePlannerService
                            .map { |x| x.aisle_num.to_i }.to_set
       reset_previous_plan
 
-      # ---------- STEP 1: articles already in this aisle (per the CSV) — NEVER moved ----------
-      # One placement for EVERY slid_h the article has in this aisle
-      in_place = in_aisle_articles.flat_map do |a|
-        aisle_slids(a).filter_map do |slid|
+      # ---------- STEP 1a: manually planned articles — fixed, NEVER moved, always take space ----------
+      manual = Placement.where(mode: MANUAL_MODE, section_id: @sections.map(&:id))
+                        .includes(:article).to_a
+      result[:manual] = manual.size
+
+      # ---------- STEP 1b: articles already in this aisle (per the CSV) — NEVER moved ----------
+      # One placement for EVERY slid_h the article holds in this aisle
+      in_place = []
+      in_aisle_articles.each do |a|
+        aisle_slids(a).each do |slid|
           loc = locate(slid)
-          loc ? [a, slid, loc] : (result[:skipped] += 1; nil)
+          loc ? in_place << [a, slid, loc] : result[:skipped] += 1
         end
       end
 
       build_bins
 
       occ_height = Hash.new(0.0)
-      in_place.each do |a, _slid, (_section, level)|
-        bin = @bins[level.id]
-        if bin.ground?
-          bin.space.used += ground_w(a)
-          occ_height[level.id] = [occ_height[level.id], ground_h(a)].max
-        else
-          bin.space.used += mm(a["CP_Width"])
-          occ_height[level.id] = [occ_height[level.id], mm(a["CP_Height"]) * [a["ASSQ"].to_i, 1].max].max
-        end
-      end
+      manual.each   { |p| occupy(p.article, @bins[p.level_id], occ_height) }
+      in_place.each { |a, _slid, (_section, level)| occupy(a, @bins[level.id], occ_height) }
       settle_heights(occ_height)
 
       in_place.each do |a, slid, (_section, level)|
@@ -131,6 +176,11 @@ class AislePlannerService
 
   # ---------- scopes ----------
 
+  # Articles that already have a new_slid are taken (including manual ones) and never planned again
+  def eligible(scope)
+    scope.where(new_slid: [nil, ""])
+  end
+
   def not_srp4(scope)
     t = Article.arel_table
     scope.where(t[:SRP].eq(nil).or(t[:SRP].not_eq(4)))
@@ -143,22 +193,17 @@ class AislePlannerService
   end
 
   # Every article with a CSV slid_h in this aisle, whatever HFB/PA/start date/FCST is selected.
-  # Skipped: SRP = 4, expired, or a new_slid that is not one of its own CSV locations
-  # (manually assigned or moved elsewhere).
+  # Skipped: new_slid already set, SRP = 4, expired (their location is empty).
   def in_aisle_articles
-    end_date_ok(not_srp4(@store.articles))
+    end_date_ok(not_srp4(eligible(@store.articles)))
       .to_a
-      .select do |a|
-        next false if self.class.reserved_article?(a)
-        next false if aisle_slids(a).empty?
-        a.new_slid.blank? || valid_slids(a).include?(self.class.pad(a.new_slid))
-      end
+      .select { |a| !self.class.reserved_article?(a) && aisle_slids(a).any? }
   end
 
   # Only articles from aisles 60–80 with no new_slid and no home in a regular aisle
   def relocation_candidates
     t     = Article.arel_table
-    scope = end_date_ok(not_srp4(@store.articles.where(planned: [false, nil], new_slid: [nil, ""])))
+    scope = end_date_ok(not_srp4(eligible(@store.articles.where(planned: [false, nil]))))
     scope = scope.where(hfb: @hfb) if @hfb
     scope = scope.where(pa: @pa)   if @pa
     scope = scope.where(t[:Start_Date_Sale].eq(nil).or(t[:Start_Date_Sale].lteq(@start_date))) if @start_date
@@ -172,7 +217,8 @@ class AislePlannerService
     end
   end
 
-  # Removes this aisle's previous plan; articles left with no placement get new_slid cleared
+  # Removes this aisle's previous planner placements (manual ones are kept);
+  # articles left with no placement get new_slid cleared so they can be planned again
   def reset_previous_plan
     previous = Placement.where(mode: MODE, section_id: @sections.map(&:id))
     ids      = previous.distinct.pluck(:article_id)
@@ -189,22 +235,12 @@ class AislePlannerService
     self.class.slids(a).select { |s| SLID_FORMAT.match?(s) }
   end
 
-  # All of the article's slid_h's in this aisle
   def aisle_slids(a)
     valid_slids(a).select { |s| s[0, 2].to_i == @aisle_no }.uniq
   end
 
-  # A section spans several slid section numbers (e.g. section 04 holds 04, 05 and 06),
-  # so the slid goes to the highest Sec_num at or below its SS
   def locate(slid)
-    ss      = slid[2, 2].to_i
-    section = @sections.select { |s| s.Sec_num.to_i <= ss }.max_by { |s| s.Sec_num.to_i }
-    return nil unless section
-
-    level = section.levels.to_a.find { |l| l.lev_num.to_i == slid[4, 2].to_i } ||
-            section.levels.create!(lev_num: slid[4, 2], lev_depth: section.sec_depth,
-                                   lev_width: section.sec_width.to_s)
-    [section, level]
+    self.class.section_level(@sections, slid)
   end
 
   # ---------- bins ----------
@@ -217,6 +253,18 @@ class AislePlannerService
                               space: Space.new(width: mm(s.sec_width), used: 0.0),
                               depth: mm(s.sec_depth), height: 0.0)
       end
+    end
+  end
+
+  # An existing article uses its width on the level and sets the level height
+  def occupy(a, bin, occ_height)
+    return unless bin
+    if bin.ground?
+      bin.space.used += ground_w(a)
+      occ_height[bin.level.id] = [occ_height[bin.level.id], ground_h(a)].max
+    else
+      bin.space.used += mm(a["CP_Width"])
+      occ_height[bin.level.id] = [occ_height[bin.level.id], mm(a["CP_Height"]) * [a["ASSQ"].to_i, 1].max].max
     end
   end
 
@@ -294,16 +342,12 @@ class AislePlannerService
     end
   end
 
-  # The article keeps its first location as new_slid; every location gets its own placement
+  # Articles with several locations get one placement per location; new_slid keeps the first one
   def place(article, bin, qty, slid = nil)
     slid ||= format("%02d%02d%02d", @aisle_no, bin.section.Sec_num.to_i, bin.level.lev_num.to_i)
     Placement.create!(store: @store, article: article, section_id: bin.section.id,
                       level_id: bin.level.id, mode: MODE, new_slid: slid, quantity: qty)
-    if article.new_slid.blank?
-      article.update_columns(planned: true, new_slid: slid)
-    else
-      article.update_columns(planned: true)
-    end
+    article.update_columns(planned: true, new_slid: article.new_slid.presence || slid)
   end
 
   # ---------- measurements (mm) and weight (g) ----------

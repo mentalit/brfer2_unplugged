@@ -1,0 +1,32 @@
+<h1>Search articles</h1>
+
+<%= render "search_form" %>
+
+<p><%= pluralize(@results.size, "result") %> for "<%= @query %>"</p>
+
+<% if @results.any? %>
+  <table>
+    <thead>
+      <tr>
+        <th>ARTNO</th>
+        <th>Name</th>
+        <th>SLID</th>
+        <th>Planned</th>
+        <th>New SLID</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @results.each do |article| %>
+        <tr>
+          <td><%= link_to article.ARTNO, article_path(article) %></td>
+          <td><%= article.ARTNAME_UNICODE %></td>
+          <td><%= Array(article.SLID).join(", ") %></td>
+          <td><%= article.planned ? "Yes" : "No" %></td>
+          <td><%= article.new_slid %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>
+
+<p><%= link_to "Back to articles", store_articles_path(@store) %></p>

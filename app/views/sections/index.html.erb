@@ -6,6 +6,7 @@
 <%
   pallet_aisle    = PalletPlannerService.pallet_aisle?(@aisle)
   aisle_plannable = @aisle_plannable && !pallet_aisle
+  filter_params   = { hfb: @hfb, pa: @pa, end_date: @end_date, start_date: @start_date, max_fcst: @max_fcst }
 %>
 
 <%# Every slid_h of an article, split and padded to 6 digits (10100 → 010100) %>
@@ -172,7 +173,7 @@
   <%= button_to "Unplan aisle #{@aisle.aisle_num}",
                 unplan_aisle_aisle_sections_path(@aisle),
                 method: :delete,
-                params: { hfb: @hfb, pa: @pa, end_date: @end_date, start_date: @start_date, max_fcst: @max_fcst },
+                params: filter_params,
                 form: { data: { turbo_confirm: "Remove every planned article from all sections in aisle #{@aisle.aisle_num}?" } } %>
 </p>
 
@@ -187,6 +188,7 @@
       <th>DT</th>
       <th>Qty</th>
       <th>Status</th>
+      <th></th>
     </tr>
   </thead>
 
@@ -195,7 +197,7 @@
     <% levels   = section.levels.sort_by { |l| l.lev_num.to_i } %>
     <tbody>
       <tr style="background: #ddd;">
-        <th colspan="7" style="text-align: left;">
+        <th colspan="8" style="text-align: left;">
           <%= link_to "Section #{format('%02d', section.Sec_num.to_i)}", section %>
           — width <%= section.sec_width %> mm,
           depth <%= section.sec_depth %> mm,
@@ -207,7 +209,7 @@
       <% levels.each do |level| %>
         <% rows = by_level[level.id] || [] %>
         <tr style="background: #f2f2f2;">
-          <td colspan="7" style="padding-left: 1.5em;">
+          <td colspan="8" style="padding-left: 1.5em;">
             <strong>Level <%= level.lev_num %></strong>
             <% if level.lev_height.to_f.positive? %>— height <%= level.lev_height %> mm<% end %>
             (<%= rows.size %> <%= "article".pluralize(rows.size) %>)
@@ -215,7 +217,7 @@
         </tr>
 
         <% if rows.empty? %>
-          <tr><td colspan="7" style="padding-left: 3em;"><em>Empty</em></td></tr>
+          <tr><td colspan="8" style="padding-left: 3em;"><em>Empty</em></td></tr>
         <% end %>
 
         <% rows.each do |p| %>
@@ -229,14 +231,21 @@
             <td><%= a["ARTNAME_UNICODE"] %></td>
             <td><%= a["DT"] %></td>
             <td><%= p.quantity %></td>
-            <td><%= original ? "Original" : "Newly planned" %></td>
+            <td><%= p.mode == AislePlannerService::MANUAL_MODE ? "Manual" : original ? "Original" : "Newly planned" %></td>
+            <td>
+              <%= button_to "Unassign",
+                            unassign_article_aisle_sections_path(@aisle),
+                            method: :delete,
+                            params: filter_params.merge(article_id: a.id),
+                            form: { data: { turbo_confirm: "Unassign #{a["ARTNO"]} from all its locations?" } } %>
+            </td>
           </tr>
         <% end %>
       <% end %>
 
       <% if by_level[nil].present? %>
         <tr style="background: #f2f2f2;">
-          <td colspan="7" style="padding-left: 1.5em;">
+          <td colspan="8" style="padding-left: 1.5em;">
             <strong>No level</strong> (<%= by_level[nil].size %> <%= "article".pluralize(by_level[nil].size) %>)
           </td>
         </tr>
@@ -251,7 +260,14 @@
             <td><%= a["ARTNAME_UNICODE"] %></td>
             <td><%= a["DT"] %></td>
             <td><%= p.quantity %></td>
-            <td><%= original ? "Original" : "Newly planned" %></td>
+            <td><%= p.mode == AislePlannerService::MANUAL_MODE ? "Manual" : original ? "Original" : "Newly planned" %></td>
+            <td>
+              <%= button_to "Unassign",
+                            unassign_article_aisle_sections_path(@aisle),
+                            method: :delete,
+                            params: filter_params.merge(article_id: a.id),
+                            form: { data: { turbo_confirm: "Unassign #{a["ARTNO"]} from all its locations?" } } %>
+            </td>
           </tr>
         <% end %>
       <% end %>

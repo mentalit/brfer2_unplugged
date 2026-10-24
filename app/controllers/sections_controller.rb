@@ -2,7 +2,7 @@ require "csv"
 
 class SectionsController < ApplicationController
   before_action :set_section, only: %i[ show edit update destroy ]
-  before_action :get_aisle, only: %i[ new create index plan_voss export_voss plan_aisle unplan_aisle ]
+  before_action :get_aisle, only: %i[ new create index plan_voss export_voss plan_aisle unplan_aisle unassign_article ]
 
   # GET /sections or /sections.json
   def index
@@ -31,6 +31,23 @@ class SectionsController < ApplicationController
                           .transform_values { |ps| ps.group_by(&:level_id) }
   end
 
+  def unassign_article
+    article = @aisle.store.articles.find(params[:article_id])
+    removed = 0
+
+    ActiveRecord::Base.transaction do
+      removed = Placement.where(article_id: article.id).delete_all
+      article.update_columns(planned: false, new_slid: nil)
+    end
+
+    redirect_to aisle_sections_path(@aisle, hfb: params[:hfb].presence, pa: params[:pa].presence,
+                                    end_date: params[:end_date].presence, start_date: params[:start_date].presence,
+                                    max_fcst: params[:max_fcst].presence),
+                notice: "#{article["ARTNO"]} unassigned: #{removed} #{"location".pluralize(removed)} removed."
+  end
+
+
+
   # POST /aisles/:aisle_id/sections/plan_aisle
   def plan_aisle
     hfb        = params[:hfb].presence&.to_i
@@ -51,13 +68,16 @@ class SectionsController < ApplicationController
 
     redirect_to back,
                 notice: "Aisle #{@aisle.aisle_num}: #{r[:candidates]} to plan — " \
+                        "#{r[:manual].to_i} manual, " \
                         "#{r[:in_place]} at own slid_h, #{r[:placed]} newly planned, " \
                         "#{r[:no_room]} no room, #{r[:too_deep]} too deep, #{r[:skipped]} skipped."
   end
 
   # DELETE /aisles/:aisle_id/sections/unplan_aisle
+  # Manually planned articles are never unplanned
   def unplan_aisle
     placements = Placement.where(section_id: @aisle.sections.select(:id))
+                          .where.not(mode: AislePlannerService::MANUAL_MODE)
     ids        = placements.distinct.pluck(:article_id)
     removed    = 0
 
@@ -116,8 +136,10 @@ class SectionsController < ApplicationController
 
   # GET /aisles/:aisle_id/sections/export_voss.csv
   def export_voss
-    placements = Placement.where(store: @aisle.store, mode: VossPlannerService::MODE)
-                          .includes(:article).joins(:article)
+    base       = Placement.where(store: @aisle.store)
+    placements = base.where(mode: VossPlannerService::MODE)
+                     .or(base.where(mode: AislePlannerService::MANUAL_MODE, new_slid: VossPlannerService::NEW_SLID))
+                     .includes(:article).joins(:article)
     placements = placements.where(articles: { hfb: params[:hfb] }) if params[:hfb].present?
     placements = placements.where(articles: { pa: params[:pa] })   if params[:pa].present?
 

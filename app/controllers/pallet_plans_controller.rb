@@ -1,7 +1,7 @@
 require "csv"
 
 class PalletPlansController < ApplicationController
-  before_action :get_aisle
+  before_action :get_aisle, only: %i[ create export ]
 
   # POST /aisles/:aisle_id/pallet/plan
   def create
@@ -47,8 +47,10 @@ class PalletPlansController < ApplicationController
 
   # GET /aisles/:aisle_id/pallet/export.csv
   def export
-    placements = Placement.where(store: @aisle.store, mode: PalletPlannerService::MODE)
-                          .includes(:article).joins(:article)
+    base       = Placement.where(store: @aisle.store)
+    placements = base.where(mode: PalletPlannerService::MODE)
+                     .or(base.where(mode: AislePlannerService::MANUAL_MODE, new_slid: PalletPlannerService::NEW_SLID))
+                     .includes(:article).joins(:article)
     placements = placements.where(articles: { hfb: params[:hfb] }) if params[:hfb].present?
     placements = placements.where(articles: { pa: params[:pa] })   if params[:pa].present?
 

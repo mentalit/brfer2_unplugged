@@ -1,7 +1,9 @@
 class Aisle < ApplicationRecord
   belongs_to :store
   has_many :sections, dependent: :destroy
+  has_many :articles, through: :sections
 
+ 
   after_update :update_sections_depth, if: :saved_change_to_MAXLENGTH?
 
   private

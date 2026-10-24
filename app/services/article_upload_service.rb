@@ -159,6 +159,10 @@ class ArticleUploadService
     # Next Start Date Sale — only from articles still eligible for upload
     next_start = candidates.filter_map { |c| c[3] }.select { |d| d > today }.min
 
+    # Manually planned articles are never re-planned or moved by an upload
+    manual_ids = Placement.where(store: @store, mode: AislePlannerService::MANUAL_MODE)
+                          .distinct.pluck(:article_id).to_set
+
     # Pass 2: future-date rule, then upload
     Article.transaction do
       candidates.each do |k, attrs, article, start_date, end_date|
@@ -182,7 +186,13 @@ class ArticleUploadService
         slids     = valid_slids(raw_slids)
         locations = []
 
-        if pre_planned?(srp, end_date, slids.first)
+        manual = article && manual_ids.include?(article.id)
+        if manual
+          attrs.delete("new_slid")
+          attrs.delete("planned")
+        end
+
+        if !manual && pre_planned?(srp, end_date, slids.first)
           if srp != 4 && !AislePlannerService.reserved_article?({ "SLID" => raw_slids })
             locations = placeable_locations(slids)
           end
@@ -287,7 +297,8 @@ class ArticleUploadService
   # One placement per location, replacing any earlier placements for this article.
   # Quantity: PALQ on level 00, MIN on upper levels.
   def create_placements(article, locations, result)
-    Placement.where(article_id: article.id).delete_all
+    Placement.where(article_id: article.id)
+             .where.not(mode: AislePlannerService::MANUAL_MODE).delete_all
 
     locations.each do |slid, section, level|
       Placement.create!(

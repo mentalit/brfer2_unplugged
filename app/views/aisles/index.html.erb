@@ -2,20 +2,36 @@
 
 <% content_for :title, "Aisles" %>
 
-<h1>Aisles</h1>
+<div class="row">
+  <div class="col-6"><h1>Aisles</h1></div> 
 
-<div id="aisles">
+  <div class="col-6"><%= link_to "New aisle", new_store_aisle_path %></div>
+</div>
+
+
+<div class="row">
   <% @aisles.each do |aisle| %>
-    <%= render aisle %>
-    <p>
-      <%= link_to "Show this aisle", aisle %>
-    </p>
+    <div class="col-md-2 mb-3">
+      <div class="card h-100">
+        <div class="card-body">
+          <%= render aisle %>
+
+          <p>
+            <%= link_to "Show this aisle", aisle %>
+          </p>
+        </div>
+      </div>
+    </div>
   <% end %>
 </div>
+ 
+
+
+
 
 <%= form_with url: import_store_aisles_path(@store), multipart: true do |f| %>
   <%= f.file_field :file, accept: ".csv,.txt" %>
   <%= f.submit "Import Warehouse Details" %>
 <% end %>
 
-<%= link_to "New aisle", new_store_aisle_path %>
+

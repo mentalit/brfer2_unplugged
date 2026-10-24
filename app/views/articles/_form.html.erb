@@ -22,8 +22,8 @@
   </div>
 
   <div>
-    <%= form.label :SLID, style: "display: block" %>
-    <%= form.text_field :SLID %>
+    <%= form.label :SLID, "SLID (separate several with commas)", style: "display: block" %>
+    <%= form.text_field :SLID, value: Array(article.SLID).join(", ") %>
   </div>
 
   <div>
@@ -142,7 +142,7 @@
   </div>
 
   <div>
-    <%= form.label :new_slid, style: "display: block" %>
+    <%= form.label :new_slid, "New slid (manual planning — e.g. 010300, 990100 or PALLET; blank = unplanned)", style: "display: block" %>
     <%= form.text_field :new_slid %>
   </div>
 
