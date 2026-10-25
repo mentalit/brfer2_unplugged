@@ -128,6 +128,12 @@ class ArticleUploadService
     slm0002  = load_fill(@slm0002_file, SLM0002_FIELDS, "SLM0002")
     al010    = load_fill(@al010_file, AL010_FIELDS, "Al010")
     articles = load_articles(article_rows, article_map, result)
+
+    # Never wipe the store because of an empty or wrong article file
+    if articles.empty?
+      raise UploadError, "Article file has no articles — nothing was uploaded or deleted."
+    end
+
     existing = @store.articles.to_a.index_by { |a| key(a.ARTNO.presence || a.Item_No) }
 
     result[:articles_total]  = articles.size
@@ -159,12 +165,8 @@ class ArticleUploadService
     # Next Start Date Sale — only from articles still eligible for upload
     next_start = candidates.filter_map { |c| c[3] }.select { |d| d > today }.min
 
-    # Manually planned articles are never re-planned or moved by an upload
-    manual_ids = Placement.where(store: @store, mode: AislePlannerService::MANUAL_MODE)
-                          .distinct.pluck(:article_id).to_set
-
-    # Pass 2: future-date rule, then upload
     Article.transaction do
+      # Pass 2: future-date rule, then upload
       candidates.each do |k, attrs, article, start_date, end_date|
         if start_date && start_date > today && start_date != next_start
           result[:skipped_future] += 1
@@ -180,19 +182,16 @@ class ArticleUploadService
 
         fill_from_fallback(attrs, article, "PALQ", dwp_palq)
 
-        # Pre-planned: your rule + the planner's in-place rules
         srp       = attrs.key?("SRP") ? attrs["SRP"] : article&.SRP
         raw_slids = attrs["SLID"].presence || article&.SLID.to_a
         slids     = valid_slids(raw_slids)
         locations = []
 
-        manual = article && manual_ids.include?(article.id)
-        if manual
-          attrs.delete("new_slid")
-          attrs.delete("planned")
-        end
-
-        if !manual && pre_planned?(srp, end_date, slids.first)
+        if manual_plan?(article, slids)
+          # new_slid set by hand or by the planner — keep new_slid, planned and placements
+          result[:manual_kept] += 1
+        elsif pre_planned?(srp, end_date, slids.first)
+          # Pre-planned: your rule + the planner's in-place rules
           if srp != 4 && !AislePlannerService.reserved_article?({ "SLID" => raw_slids })
             locations = placeable_locations(slids)
           end
@@ -229,6 +228,17 @@ class ArticleUploadService
           result[:missing_mpq_artnos] << k
         end
       end
+
+      # Articles no longer on the article file: delete them and their placements
+      on_file = articles.keys.to_set
+      gone    = @store.articles.pluck(:id, :ARTNO, :Item_No)
+                      .reject { |_id, artno, item_no| on_file.include?(key(artno.presence || item_no)) }
+                      .map(&:first)
+
+      if gone.any?
+        result[:placements_deleted] = Placement.where(article_id: gone).delete_all
+        result[:deleted]            = Article.where(id: gone).delete_all
+      end
     end
 
     result[:next_start_date] = next_start
@@ -245,6 +255,16 @@ class ArticleUploadService
 
     in_range = slid_h.to_i.between?(PLANNING_SLID_FROM, PLANNING_SLID_TO)
     srp != 4 || end_date != PLANNING_END_DATE || !in_range
+  end
+
+  # An existing article whose new_slid is not one of its own SLIDs (old or new)
+  # was planned by hand or relocated by the planner — the upload leaves that plan alone
+  def manual_plan?(article, slids)
+    return false if article.nil? || article.new_slid.blank?
+
+    current = valid_slids([article.new_slid]).first || article.new_slid.to_s.strip
+    own     = valid_slids(article.SLID) | slids
+    !own.include?(current)
   end
 
   # ---------- placement rules — same as AislePlannerService ----------
@@ -297,8 +317,7 @@ class ArticleUploadService
   # One placement per location, replacing any earlier placements for this article.
   # Quantity: PALQ on level 00, MIN on upper levels.
   def create_placements(article, locations, result)
-    Placement.where(article_id: article.id)
-             .where.not(mode: AislePlannerService::MANUAL_MODE).delete_all
+    Placement.where(article_id: article.id).delete_all
 
     locations.each do |slid, section, level|
       Placement.create!(

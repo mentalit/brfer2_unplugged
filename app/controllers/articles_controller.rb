@@ -84,15 +84,25 @@ class ArticlesController < ApplicationController
   4, true, 580100, 810000
 )
   
-#     @planned_basement = @store.articles.where(
-#   '"SRP" != ? AND EXISTS (
-#     SELECT 1
-#     FROM unnest(articles."SLID") AS s(value)
-#     WHERE s.value ~ \'^[0-9]+$\'
-#       AND s.value::integer BETWEEN ? AND ?
-#   )',
-#   4, 580100, 810000
-# )
+    @unplanned_basement = @store.articles.where(
+  '"SRP" != ? AND EXISTS (
+    SELECT 1
+    FROM unnest(articles."SLID") AS s(value)
+    WHERE s.value ~ \'^[0-9]+$\'
+      AND s.value::integer BETWEEN ? AND ?
+  )',
+  4, 580100, 810000
+)
+
+@unplanned_basement_srp_1 = @store.articles.where(
+  '"SRP" != ? AND "planned" = ? AND EXISTS (
+    SELECT 1
+    FROM unnest(articles."SLID") AS s(value)
+    WHERE s.value ~ \'^[0-9]+$\'
+      AND s.value::integer BETWEEN ? AND ?
+  )',
+  1, false, 580100, 810000
+)
 
 
 
