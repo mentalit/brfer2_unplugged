@@ -5,8 +5,10 @@ Rails.application.routes.draw do
   # Defines the root path route ("/")
   root "stores#index"
 
+  post "aisles/:aisle_id/plan_upload", to: "plan_uploads#create", as: :aisle_plan_upload
+
   resources :stores, shallow: true do
-    
+
     resources :articles do
 
       collection do
@@ -25,6 +27,7 @@ Rails.application.routes.draw do
       resources :sections, shallow: true do
         collection do
           post   :plan_voss
+          get    :export_all
           get    :export_voss
           post   :plan_pallet,   to: "pallet_plans#create"
           get    :export_pallet, to: "pallet_plans#export"

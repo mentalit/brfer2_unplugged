@@ -1,5 +1,38 @@
-Planned: <%=  @planned_basement.count %>
+<%# planned_basement.html.erb %>
 
-Total: <%=  @unplanned_basement.count %>
+<p>Planned: <%= @planned_basement.count %></p>
+<p>Total: <%= @unplanned_basement.count %></p>
+<p>SRP 1 unplanned basement: <%= @unplanned_basement_srp_1.count %></p>
 
-SRP 1 unplanned basement: <%= @unplanned_basement_srp_1.count %>
+<% [["HFB", @basement_by_hfb], ["PA", @basement_by_pa]].each do |label, rows| %>
+  <h3>By <%= label %></h3>
+
+  <table>
+    <thead>
+      <tr>
+        <th><%= label %></th>
+        <th>Planned</th>
+        <th>Unplanned</th>
+        <th>Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% rows.each do |key, planned, unplanned, total| %>
+        <tr>
+          <td><%= key || "No #{label}" %></td>
+          <td><%= planned %></td>
+          <td><%= unplanned %></td>
+          <td><%= total %></td>
+        </tr>
+      <% end %>
+    </tbody>
+    <tfoot>
+      <tr>
+        <th>Total</th>
+        <th><%= rows.sum { |r| r[1] } %></th>
+        <th><%= rows.sum { |r| r[2] } %></th>
+        <th><%= rows.sum { |r| r[3] } %></th>
+      </tr>
+    </tfoot>
+  </table>
+<% end %>

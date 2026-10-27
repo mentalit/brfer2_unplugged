@@ -1,7 +1,5 @@
 # article_controller.rb
 
-# article_controller.rb
-
 class ArticlesController < ApplicationController
   before_action :set_article, only: %i[ show edit update destroy ]
   before_action :get_store, only: %i[ new create index totals non_srp_4 search planned_basement ]
@@ -72,40 +70,34 @@ class ArticlesController < ApplicationController
   end
 
   def planned_basement
+    basement_sql = '"SRP" != ? AND EXISTS (
+      SELECT 1
+      FROM unnest(articles."SLID") AS s(value)
+      WHERE s.value ~ \'^[0-9]+$\'
+        AND s.value::integer BETWEEN ? AND ?
+    )'
 
+    @unplanned_basement = @store.articles.where(basement_sql, 4, 580100, 810000)
 
-    @planned_basement = @store.articles.where(
-  '"SRP" != ? AND "planned" = ? AND EXISTS (
-    SELECT 1
-    FROM unnest(articles."SLID") AS s(value)
-    WHERE s.value ~ \'^[0-9]+$\'
-      AND s.value::integer BETWEEN ? AND ?
-  )',
-  4, true, 580100, 810000
-)
-  
-    @unplanned_basement = @store.articles.where(
-  '"SRP" != ? AND EXISTS (
-    SELECT 1
-    FROM unnest(articles."SLID") AS s(value)
-    WHERE s.value ~ \'^[0-9]+$\'
-      AND s.value::integer BETWEEN ? AND ?
-  )',
-  4, 580100, 810000
-)
+    @planned_basement = @unplanned_basement.where(planned: true)
 
-@unplanned_basement_srp_1 = @store.articles.where(
-  '"SRP" != ? AND "planned" = ? AND EXISTS (
-    SELECT 1
-    FROM unnest(articles."SLID") AS s(value)
-    WHERE s.value ~ \'^[0-9]+$\'
-      AND s.value::integer BETWEEN ? AND ?
-  )',
-  1, false, 580100, 810000
-)
+    @unplanned_basement_srp_1 = @store.articles
+      .where(SRP: 1, planned: false)
+      .where('EXISTS (
+        SELECT 1
+        FROM unnest(articles."SLID") AS s(value)
+        WHERE s.value ~ \'^[0-9]+$\'
+          AND s.value::integer BETWEEN ? AND ?
+      )', 580100, 810000)
 
+    counts = [
+      Arel.sql('COUNT(*) FILTER (WHERE "planned" = true)'),
+      Arel.sql('COUNT(*) FILTER (WHERE "planned" IS NOT TRUE)'),
+      Arel.sql('COUNT(*)')
+    ]
 
-
+    @basement_by_hfb = @unplanned_basement.group(:hfb).order(:hfb).pluck(:hfb, *counts)
+    @basement_by_pa  = @unplanned_basement.group(:pa).order(:pa).pluck(:pa, *counts)
   end
 
   def import

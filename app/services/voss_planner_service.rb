@@ -6,12 +6,16 @@ class VossPlannerService
   # CP_Weight_Gross is stored in kg; the Weight limit is entered in g
   KG_TO_G = 1000
 
+  # FCST below 10 and lighter than 25 lb → quantity 2 × FCST instead of RSSQ (same rule as the Aisle planner)
+  LOW_FCST       = 10
+  LIGHT_WEIGHT_G = 11339.8
+
   def self.voss_aisle?(aisle)
     aisle.aisle_num.to_s.strip == VOSS_AISLE
   end
 
   def initialize(store, section:, hfb:, pa: nil, article_limit: nil, max_height: nil, max_length: nil,
-                 max_width: nil, max_weight: nil, max_fcst: nil, exclude_names: nil)
+                 max_width: nil, max_weight: nil, max_fcst: nil, exclude_names: nil, dt_one_only: false)
     @store         = store
     @section       = section
     @hfb           = hfb
@@ -21,6 +25,8 @@ class VossPlannerService
     @max_weight_g  = max_weight
     # "SKOGSTA, LACK" → ["SKOGSTA", "LACK"]; any article whose name contains one is skipped
     @exclude_names = exclude_names.to_s.split(",").map(&:strip).reject(&:empty?)
+    # true = plan ONLY DT = 1 articles; false = the normal DT = 0 articles
+    @dt            = dt_one_only ? 1 : 0
     @limits = {
       "CP_Height" => max_height,  # mm
       "CP_Length" => max_length,  # mm
@@ -43,7 +49,7 @@ class VossPlannerService
           section:  @section,
           mode:     MODE,
           new_slid: NEW_SLID,
-          quantity: article["RSSQ"]
+          quantity: quantity(article)
         )
         article.update!(planned: true, new_slid: NEW_SLID)
       end
@@ -56,10 +62,11 @@ class VossPlannerService
 
   private
 
-  # Unplanned articles in the HFB (and PA if given) with DT = 0 and SRP not 4, highest FCST first.
+  # Unplanned articles in the HFB (and PA if given) with DT = 0 (or DT = 1 when "Only DT = 1" is ticked)
+  # and SRP not 4, highest FCST first.
   # Articles whose name contains an excluded name (not case sensitive) are never planned.
   def candidates
-    scope = @store.articles.where(hfb: @hfb, DT: 0, planned: [false, nil])
+    scope = @store.articles.where(hfb: @hfb, DT: @dt, planned: [false, nil])
     scope = scope.where('"articles"."SRP" IS DISTINCT FROM 4')
     scope = scope.where(pa: @pa) if @pa
     scope = scope.where(FCST: ..@max_fcst) if @max_fcst
@@ -85,6 +92,17 @@ class VossPlannerService
     return true if @max_weight_g.nil?
     kg = number(article["CP_Weight_Gross"])
     kg && (kg * KG_TO_G) <= @max_weight_g
+  end
+
+  # 2 × FCST (rounded up) for light articles with FCST below 10, otherwise RSSQ
+  def quantity(article)
+    fcst = article["FCST"]
+    kg   = number(article["CP_Weight_Gross"])
+    if !fcst.nil? && fcst.to_f < LOW_FCST && kg && kg.positive? && (kg * KG_TO_G) < LIGHT_WEIGHT_G
+      (2 * fcst.to_f).ceil
+    else
+      article["RSSQ"]
+    end
   end
 
   def number(value)

@@ -2,7 +2,7 @@ require "csv"
 
 class SectionsController < ApplicationController
   before_action :set_section, only: %i[ show edit update destroy ]
-  before_action :get_aisle, only: %i[ new create index plan_voss export_voss plan_aisle unplan_aisle unassign_article ]
+  before_action :get_aisle, only: %i[ new create index plan_voss export_voss plan_aisle unplan_aisle unassign_article export_all ]
 
   # GET /sections or /sections.json
   def index
@@ -20,6 +20,7 @@ class SectionsController < ApplicationController
     @end_date   = date_param(:end_date)
     @start_date = date_param(:start_date)
     @max_fcst   = number_param(:max_fcst)
+    @ignore_weight = params[:ignore_weight] == "1"
 
     @placements = Placement.where(section_id: @sections.map(&:id))
                            .joins(:article).includes(:article)
@@ -55,8 +56,10 @@ class SectionsController < ApplicationController
     end_date   = date_param(:end_date)
     start_date = date_param(:start_date)
     max_fcst   = number_param(:max_fcst)
+    ignore_wt  = params[:ignore_weight] == "1"
     back       = aisle_sections_path(@aisle, hfb: hfb, pa: pa, end_date: end_date,
-                                     start_date: start_date, max_fcst: max_fcst)
+                                     start_date: start_date, max_fcst: max_fcst,
+                                     ignore_weight: ("1" if ignore_wt))
 
     unless AislePlannerService.plannable_aisle?(@aisle)
       redirect_to back, alert: "Aisle mode cannot plan aisle #{@aisle.aisle_num}."
@@ -64,11 +67,12 @@ class SectionsController < ApplicationController
     end
 
     r = AislePlannerService.new(@aisle, hfb: hfb, pa: pa, end_date: end_date,
-                                start_date: start_date, max_fcst: max_fcst).call
+                                start_date: start_date, max_fcst: max_fcst,
+                                ignore_weight: ignore_wt).call
 
     redirect_to back,
                 notice: "Aisle #{@aisle.aisle_num}: #{r[:candidates]} to plan — " \
-                        "#{r[:manual].to_i} manual, " \
+                        "#{r[:manual].to_i} manual, #{r[:kept].to_i} kept from earlier planning, " \
                         "#{r[:in_place]} at own slid_h, #{r[:placed]} newly planned, " \
                         "#{r[:no_room]} no room, #{r[:too_deep]} too deep, #{r[:skipped]} skipped."
   end
@@ -130,10 +134,12 @@ class SectionsController < ApplicationController
       max_width:     number_param(:max_width),
       max_weight:    number_param(:max_weight),
       max_fcst:      number_param(:max_fcst),
-      exclude_names: params[:exclude_names]
+      exclude_names: params[:exclude_names],
+      dt_one_only:   params[:dt_one_only] == "1"
     ).call
 
     scope = pa ? "PA #{pa}" : "HFB #{hfb}"
+    scope += ", DT = 1 only" if params[:dt_one_only] == "1"
     redirect_to aisle_sections_path(@aisle, hfb: hfb, pa: pa),
                 notice: "#{count} #{"article".pluralize(count)} planned in Voss mode for #{scope}."
   end
@@ -156,6 +162,24 @@ class SectionsController < ApplicationController
     end
 
     send_data csv, filename: "voss_plan_#{Date.current}.csv", type: "text/csv"
+  end
+
+  # GET /aisles/:aisle_id/sections/export_all.csv
+  # Every planned article in the store — Voss, PALLET, Aisles and manual — one row per location
+  def export_all
+    placements = Placement.where(store: @aisle.store)
+                          .includes(:article).joins(:article)
+                          .order(:mode, :new_slid)
+
+    csv = CSV.generate do |rows|
+      rows << %w[Slid_h artno artname_unicode new_slid quantity mode]
+      placements.each do |p|
+        a = p.article
+        rows << [Array(a["SLID"]).join(", "), a["ARTNO"], a["ARTNAME_UNICODE"], p.new_slid, p.quantity, p.mode]
+      end
+    end
+
+    send_data csv, filename: "all_planned_#{Date.current}.csv", type: "text/csv"
   end
 
   # GET /sections/1 or /sections/1.json

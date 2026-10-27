@@ -7,6 +7,8 @@ class AislePlannerService
   NO_LOCATION        = (60..80)
   GROUND             = 0
   HEAVY_WEIGHT_G     = 22679.6
+  LOW_FCST           = 10       # FCST below this ...
+  LIGHT_WEIGHT_G     = 11339.8  # ... and lighter than 25 lb → planned like DT = 0 with 2 × FCST
   KG_TO_G            = 1000
   DEFAULT_SEC_HEIGHT = 2286.0
   SLID_FORMAT        = /\A\d{6}\z/
@@ -146,7 +148,8 @@ class AislePlannerService
     problems
   end
 
-  def initialize(aisle, hfb: nil, pa: nil, end_date: nil, start_date: nil, max_fcst: nil)
+  def initialize(aisle, hfb: nil, pa: nil, end_date: nil, start_date: nil, max_fcst: nil,
+                 ignore_weight: false)
     @aisle      = aisle
     @aisle_no   = aisle.aisle_num.to_i
     @store      = aisle.store
@@ -155,23 +158,28 @@ class AislePlannerService
     @end_date   = end_date
     @start_date = start_date
     @max_fcst   = max_fcst
+    # true = the 22679.6 g rule is off: heavy articles go by DT like any other article
+    @ignore_weight = ignore_weight
   end
 
-  # Returns { candidates:, manual:, in_place:, placed:, no_room:, too_deep:, skipped: }
+  # Each planning ADDS to the previous ones: nothing already placed in the aisle is removed or moved.
+  # (Unplan aisle is the way to start the aisle again from empty.)
+  # Returns { candidates:, manual:, kept:, in_place:, placed:, no_room:, too_deep:, skipped: }
   def call
-    result = { candidates: 0, manual: 0, in_place: 0, placed: 0, no_room: 0, too_deep: 0, skipped: 0 }
+    result = { candidates: 0, manual: 0, kept: 0, in_place: 0, placed: 0, no_room: 0, too_deep: 0, skipped: 0 }
     return result unless self.class.plannable_aisle?(@aisle)
 
     ActiveRecord::Base.transaction do
       @sections    = @aisle.sections.includes(:levels).order(:Sec_num).to_a
       @home_aisles = @store.aisles.select { |x| self.class.plannable_aisle?(x) }
                            .map { |x| x.aisle_num.to_i }.to_set
-      reset_previous_plan
 
-      # ---------- STEP 1a: manually planned articles — fixed, NEVER moved, always take space ----------
-      manual = Placement.where(mode: MANUAL_MODE, section_id: @sections.map(&:id))
-                        .includes(:article).to_a
-      result[:manual] = manual.size
+      # ---------- STEP 1a: everything already placed in this aisle — kept, NEVER moved, always takes space ----------
+      # Manual placements and every earlier Aisles planning (and the upload's placements)
+      existing = Placement.where(mode: [MANUAL_MODE, MODE], section_id: @sections.map(&:id))
+                          .includes(:article, :level).to_a
+      result[:manual] = existing.count { |p| p.mode == MANUAL_MODE }
+      result[:kept]   = existing.count { |p| p.mode == MODE }
 
       # ---------- STEP 1b: articles already in this aisle (per the CSV) — NEVER moved ----------
       # One placement for EVERY slid_h the article holds in this aisle
@@ -186,7 +194,7 @@ class AislePlannerService
       build_bins
 
       occ_height = Hash.new(0.0)
-      manual.each   { |p| occupy(p.article, @bins[p.level_id], occ_height) }
+      existing.each { |p| occupy_existing(p, occ_height) }
       in_place.each { |a, _slid, (_section, level)| occupy(a, @bins[level.id], occ_height) }
       settle_heights(occ_height)
 
@@ -197,6 +205,7 @@ class AislePlannerService
       end
 
       # ---------- STEP 2: fill the remaining sec_width with articles from aisles 60–80 only ----------
+      # FCST < 10 and under 25 lb → upper levels like DT = 0, space for 2 × FCST (whatever its DT)
       # DT = 1 and heavy articles → level 00; DT = 0 → upper levels
       relocate = relocation_candidates
       result[:candidates] = relocate.size
@@ -205,7 +214,9 @@ class AislePlannerService
       upper_items  = []
       relocate.each do |a|
         item =
-          if heavy?(a) || a["DT"] == 1
+          if low_runner?(a)
+            upper_item(a, units: (2 * a["FCST"].to_f).ceil).tap { |i| upper_items << i if i }
+          elsif heavy?(a) || a["DT"] == 1
             ground_item(a).tap { |i| ground_items << i if i }
           elsif a["DT"] == 0
             upper_item(a).tap { |i| upper_items << i if i }
@@ -266,18 +277,6 @@ class AislePlannerService
     end
   end
 
-  # Removes this aisle's previous planner placements (manual ones are kept);
-  # articles left with no placement get new_slid cleared so they can be planned again
-  def reset_previous_plan
-    previous = Placement.where(mode: MODE, section_id: @sections.map(&:id))
-    ids      = previous.distinct.pluck(:article_id)
-    previous.delete_all
-    return if ids.empty?
-
-    Article.where(id: ids).where.not(id: Placement.select(:article_id))
-           .update_all(planned: false, new_slid: nil)
-  end
-
   # ---------- slid_h (AASSLL) ----------
 
   def valid_slids(a)
@@ -317,6 +316,31 @@ class AislePlannerService
     end
   end
 
+  # A placement that is already in the aisle takes its space again.
+  # Articles an earlier planning put on an upper level away from their own slid_h may have been
+  # stacked in several columns (MIN × CP_Height taller than the level), so they take
+  # CP_Width × columns, and the level keeps the height it was planned with.
+  def occupy_existing(p, occ_height)
+    bin = @bins[p.level_id]
+    return unless bin
+
+    planned_here = p.mode == MODE && !bin.ground? && !self.class.slids(p.article).include?(p.new_slid)
+    return occupy(p.article, bin, occ_height) unless planned_here
+
+    a       = p.article
+    w       = mm(a["CP_Width"])
+    h       = mm(a["CP_Height"])
+    lev_h   = p.level.lev_height.to_f
+    columns = 1
+    if h.positive? && lev_h.positive?
+      per_col = [(lev_h / h).floor, 1].max
+      columns = ([p.quantity.to_i, 1].max.to_f / per_col).ceil
+    end
+
+    bin.space.used += w * columns
+    occ_height[bin.level.id] = [occ_height[bin.level.id], lev_h.positive? ? lev_h : h].max
+  end
+
   # Occupied levels: tallest existing article. Empty upper levels share what is left of sec_height.
   def settle_heights(occ)
     @bins.values.group_by(&:section).each do |section, bins|
@@ -342,13 +366,17 @@ class AislePlannerService
     Item.new(article: a, width: w, length: l, height: ground_h(a), units: 1, qty: a["PALQ"])
   end
 
-  def upper_item(a)
+  # Upper levels use CP measurements. Space is for MIN units, or for the given units
+  # (2 × FCST for low runners), which are then also the planned quantity.
+  def upper_item(a, units: nil)
     w = mm(a["CP_Width"])
     l = mm(a["CP_Length"])
     h = mm(a["CP_Height"])
     return nil unless [w, l, h].all?(&:positive?)
+
+    qty = units || a["MIN"]
     Item.new(article: a, width: w, length: l, height: h,
-             units: [a["MIN"].to_i, 1].max, qty: a["MIN"])
+             units: [qty.to_i, 1].max, qty: qty)
   end
 
   # MIN × CP_Height must fit the level height; if not, stack in columns (lower and wider)
@@ -412,5 +440,12 @@ class AislePlannerService
   def ground_l(a) = first_positive(mm(a["UL_Length_Gross"]), mm(a["CP_Length"]))
   def ground_h(a) = first_positive(mm(a["UL_Height_Gross"]), mm(a["CP_Height"]))
 
-  def heavy?(a) = weight_g(a) > HEAVY_WEIGHT_G
+  def heavy?(a) = !@ignore_weight && weight_g(a) > HEAVY_WEIGHT_G
+
+  # FCST below 10 and a known weight under 25 lb
+  def low_runner?(a)
+    fcst = a["FCST"]
+    w    = weight_g(a)
+    !fcst.nil? && fcst.to_f < LOW_FCST && w.positive? && w < LIGHT_WEIGHT_G
+  end
 end

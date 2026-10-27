@@ -26,6 +26,7 @@
       <%= f.hidden_field :end_date,   value: @end_date %>
       <%= f.hidden_field :start_date, value: @start_date %>
       <%= f.hidden_field :max_fcst,   value: @max_fcst %>
+      <%= f.hidden_field :ignore_weight, value: (@ignore_weight ? "1" : nil) %>
 
       <%= f.label :hfb, "HFB" %>
       <%= f.select :hfb, @hfbs,
@@ -81,6 +82,10 @@
         <div>
           <%= f.label :exclude_names, "Exclude article names (separate with commas)" %>
           <%= f.text_field :exclude_names, value: session[:voss_exclude_names], placeholder: "e.g. SKOGSTA, LACK" %>
+        </div>
+        <div>
+          <%= f.check_box :dt_one_only %>
+          <%= f.label :dt_one_only, "Only DT = 1 articles" %>
         </div>
 
         <%= f.submit @pa ? "Plan Voss (PA #{@pa})" : "Plan Voss (all of HFB #{@hfb})" %>
@@ -165,6 +170,10 @@
           <%= f.label :max_fcst, "Max Fcst" %>
           <%= f.number_field :max_fcst, value: @max_fcst, step: "any", min: 0 %>
         </div>
+        <div>
+          <%= f.check_box :ignore_weight, checked: @ignore_weight %>
+          <%= f.label :ignore_weight, "No weight limit (heavy articles are not forced to level 00)" %>
+        </div>
 
         <%= f.submit "Plan aisle #{@aisle.aisle_num}" +
                      (@pa ? " (PA #{@pa})" : @hfb ? " (HFB #{@hfb})" : "") %>
@@ -172,6 +181,20 @@
     <% end %>
   </div>
 <% end %>
+
+<p>
+  <%= link_to "Export all planned articles (CSV)",
+              export_all_aisle_sections_path(@aisle, format: :csv),
+              data: { turbo: false } %>
+</p>
+
+<div id="plan_upload">
+  <h2>Upload plan CSV</h2>
+  <%= form_with url: aisle_plan_upload_path(@aisle), multipart: true, data: { turbo: false } do |f| %>
+    <%= f.file_field :plan_file, accept: ".csv,text/csv" %>
+    <%= f.submit "Upload plan" %>
+  <% end %>
+</div>
 
 <p>
   <%= button_to "Unplan aisle #{@aisle.aisle_num}",
