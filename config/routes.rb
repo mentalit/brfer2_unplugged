@@ -14,6 +14,7 @@ Rails.application.routes.draw do
 
       collection do
         post :import
+        post :remove
         get :totals
         get :non_srp_4
         get :search

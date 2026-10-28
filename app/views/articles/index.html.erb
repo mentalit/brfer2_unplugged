@@ -35,4 +35,13 @@
   <%= f.submit "Upload Articles" %>
 <% end %>
 
+<%= form_with url: remove_store_articles_path(@store), multipart: true,
+              data: { turbo_confirm: "Delete every article in this file and free its locations?" } do |f| %>
+  <div>
+    <%= f.label :remove_file, "Articles to delete (CSV with ARTNO)" %>
+    <%= f.file_field :remove_file, accept: ".csv,.txt,.tsv" %>
+  </div>
+  <%= f.submit "Delete Articles" %>
+<% end %>
+
 <%= link_to "New article", new_store_article_path %>

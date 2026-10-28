@@ -98,6 +98,27 @@ class ArticlesController < ApplicationController
     @basement_by_pa  = @unplanned_basement.group(:pa).order(:pa).pluck(:pa, *counts)
   end
 
+    def remove
+    store = Store.find(params[:store_id])
+
+    if params[:remove_file].blank?
+      redirect_to store_articles_path(store), alert: "Please choose the CSV of articles to delete."
+      return
+    end
+
+    r  = ArticleRemovalService.new(store, params[:remove_file]).call
+    nf = r[:not_found]
+
+    notice = "Deleted #{r[:deleted]} of #{r[:requested]} articles and #{r[:placements_deleted]} placements. " \
+             "#{r[:freed_slids]} locations are now free for planning."
+    notice += " Not found: #{nf.first(20).join(', ')}#{nf.size > 20 ? ', …' : ''}" if nf.any?
+
+    redirect_to store_articles_path(store), notice: notice
+  rescue ArticleRemovalService::UploadError, CSV::MalformedCSVError => e
+    Rails.logger.error "[ArticleRemoval] STOPPED: #{e.message}"
+    redirect_to store_articles_path(store), alert: e.message
+  end
+
   def unplanned_by_hfb
     cutoff = Date.new(2026, 10, 2)
 
