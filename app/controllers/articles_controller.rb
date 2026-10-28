@@ -1,8 +1,6 @@
-# article_controller.rb
-
 class ArticlesController < ApplicationController
   before_action :set_article, only: %i[ show edit update destroy ]
-  before_action :get_store, only: %i[ new create index totals non_srp_4 search planned_basement ]
+  before_action :get_store, only: %i[ new create index totals non_srp_4 search planned_basement unplanned_by_hfb ]
 
   # GET /articles or /articles.json
   def index
@@ -98,6 +96,25 @@ class ArticlesController < ApplicationController
 
     @basement_by_hfb = @unplanned_basement.group(:hfb).order(:hfb).pluck(:hfb, *counts)
     @basement_by_pa  = @unplanned_basement.group(:pa).order(:pa).pluck(:pa, *counts)
+  end
+
+  def unplanned_by_hfb
+    cutoff = Date.new(2026, 10, 2)
+
+    scope = @store.articles
+      .where(planned: [false, nil])
+      .where.not(SRP: 4)
+      .where('"Start_Date_Sale" < ?', cutoff)
+      .where('"End_Date_Sale" > ? OR "End_Date_Sale" IS NULL', cutoff)
+      .where('EXISTS (
+        SELECT 1
+        FROM unnest(articles."SLID") AS s(value)
+        WHERE s.value ~ \'^[0-9]+$\'
+          AND s.value::integer BETWEEN ? AND ?
+      )', 590000, 819999)
+
+    @unplanned_count  = scope.count
+    @unplanned_by_hfb = scope.order(:hfb, :ARTNO).group_by(&:hfb)
   end
 
   def import

@@ -189,11 +189,17 @@
 </p>
 
 <div id="plan_upload">
-  <h2>Upload plan CSV</h2>
+  <h2>Plan CSV</h2>
   <%= form_with url: aisle_plan_upload_path(@aisle), multipart: true, data: { turbo: false } do |f| %>
     <%= f.file_field :plan_file, accept: ".csv,text/csv" %>
     <%= f.submit "Upload plan" %>
   <% end %>
+
+  <p>
+    <%= link_to "Export #{@voss_aisle ? 'Voss' : pallet_aisle ? 'PALLET' : "aisle #{@aisle.aisle_num}"} plan (CSV)",
+                aisle_plan_export_path(@aisle, format: :csv),
+                data: { turbo: false } %>
+  </p>
 </div>
 
 <p>

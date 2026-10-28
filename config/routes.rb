@@ -6,6 +6,7 @@ Rails.application.routes.draw do
   root "stores#index"
 
   post "aisles/:aisle_id/plan_upload", to: "plan_uploads#create", as: :aisle_plan_upload
+  get  "aisles/:aisle_id/plan_export", to: "plan_uploads#export", as: :aisle_plan_export
 
   resources :stores, shallow: true do
 
@@ -17,6 +18,7 @@ Rails.application.routes.draw do
         get :non_srp_4
         get :search
         get :planned_basement
+        get :unplanned_by_hfb
 
       end
     end
@@ -27,8 +29,8 @@ Rails.application.routes.draw do
       resources :sections, shallow: true do
         collection do
           post   :plan_voss
-          get    :export_all
           get    :export_voss
+          get    :export_all
           post   :plan_pallet,   to: "pallet_plans#create"
           get    :export_pallet, to: "pallet_plans#export"
           post   :plan_aisle

@@ -1,0 +1,54 @@
+<h1>Unplanned articles by HFB — <%= @store.try(:name) || "Store #{@store.id}" %></h1>
+
+<p>
+  <%= @unplanned_count %> unplanned articles ·
+  <%= link_to "Back to articles", store_articles_path(@store) %>
+</p>
+
+<% if @unplanned_by_hfb.empty? %>
+  <p>No unplanned articles.</p>
+<% else %>
+  <p>
+    Jump to HFB:
+    <% @unplanned_by_hfb.each do |hfb, articles| %>
+      <%= link_to "#{hfb || 'None'} (#{articles.size})", "#hfb-#{hfb || 'none'}" %>
+    <% end %>
+  </p>
+
+  <% cols = %w[MIN SRP DT PALQ MPQ
+               CP_Sale_Sol_Name CP_Length CP_Width CP_Height CP_Weight_Gross
+               UL_Sale_Sol_Name UL_Length_Gross UL_Width_Gross UL_Height_Gross
+               new_slid Start_Date_Sale End_Date_Sale] %>
+
+  <% @unplanned_by_hfb.each do |hfb, articles| %>
+    <h2 id="hfb-<%= hfb || 'none' %>">HFB <%= hfb || "None" %> (<%= articles.size %>)</h2>
+
+    <div style="overflow-x: auto;">
+      <table style="border-collapse: collapse; font-size: 13px; white-space: nowrap;">
+        <thead>
+          <tr>
+            <th style="text-align: left; padding: 4px 8px; border-bottom: 2px solid #ccc;">ARTNO</th>
+            <th style="text-align: left; padding: 4px 8px; border-bottom: 2px solid #ccc;">ARTNAME_UNICODE</th>
+            <th style="text-align: left; padding: 4px 8px; border-bottom: 2px solid #ccc;">SLID</th>
+            <% cols.each do |c| %>
+              <th style="text-align: left; padding: 4px 8px; border-bottom: 2px solid #ccc;"><%= c %></th>
+            <% end %>
+          </tr>
+        </thead>
+        <tbody>
+          <% articles.each do |a| %>
+            <tr>
+              <td style="padding: 4px 8px; border-bottom: 1px solid #eee;"><%= link_to a.ARTNO, article_path(a) %></td>
+              <td style="padding: 4px 8px; border-bottom: 1px solid #eee;"><%= a.ARTNAME_UNICODE %></td>
+              <td style="padding: 4px 8px; border-bottom: 1px solid #eee;"><%= Array(a.SLID).join(", ") %></td>
+              <% cols.each do |c| %>
+                <% v = a.public_send(c) %>
+                <td style="padding: 4px 8px; border-bottom: 1px solid #eee;"><%= v.is_a?(Date) ? v.strftime("%m/%d/%y") : v %></td>
+              <% end %>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% end %>
+<% end %>
