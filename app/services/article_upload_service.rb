@@ -71,15 +71,16 @@ class ArticleUploadService
 
   # Fill-only files: their values are used only where the slm + DWP left a field empty.
   # "_key" is each file's own article-number column.
-  SLM0002_FIELDS = {
-    "_key"            => [:string, ["ARTNO"]],
-    "CP_Height"       => [:mm,     ["CP_HEIGHT"]],
-    "CP_Length"       => [:mm,     ["CP_LENGTH"]],
-    "CP_Width"        => [:mm,     ["CP_WIDTH"]],
-    "CP_Weight_Gross" => [:string, ["CP_WEIGHT_GROSS"]],
-    "UL_Height_Gross" => [:mm,     ["UL_HEIGHT_GROSS"]],
-    "UL_Length_Gross" => [:mm,     ["UL_LENGTH_GROSS"]],
-    "UL_Width_Gross"  => [:mm,     ["UL_WIDTH_GROSS"]]
+    SLM0002_FIELDS = {
+    "_key"            => [:string,  ["ARTNO"]],
+    "CP_Height"       => [:mm,      ["CP_HEIGHT"]],
+    "CP_Length"       => [:mm,      ["CP_LENGTH"]],
+    "CP_Width"        => [:mm,      ["CP_WIDTH"]],
+    "CP_Weight_Gross" => [:string,  ["CP_WEIGHT_GROSS"]],
+    "UL_Height_Gross" => [:mm,      ["UL_HEIGHT_GROSS"]],
+    "UL_Length_Gross" => [:mm,      ["UL_LENGTH_GROSS"]],
+    "UL_Width_Gross"  => [:mm,      ["UL_WIDTH_GROSS"]],
+    "NO_OF_PACKS"     => [:integer, ["NO_OF_PACKS"]]
   }.freeze
 
   AL010_FIELDS = {

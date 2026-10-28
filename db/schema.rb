@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_16_011123) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_28_143626) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -68,6 +68,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_16_011123) do
     t.integer "AVAILSTOCK"
     t.integer "hfb"
     t.integer "pa"
+    t.integer "NO_OF_PACKS"
     t.index ["store_id"], name: "index_articles_on_store_id"
   end
 

@@ -81,8 +81,9 @@ class AislePlannerService
   #   990100 → the Voss aisle's section, PALLET → the PALLET aisle's section (no level)
   #   AASSLL → aisle AA, section SS, level LL. Aisles can share a number (12 FS, 12 SS):
   #            every one is checked and the slid goes to the closest section.
-  def self.manual_location(store, slid)
-    aisles = store.aisles.includes(sections: :levels).to_a
+  # (pass aisles: when looking up many slids, so the aisles are only loaded once)
+  def self.manual_location(store, slid, aisles: nil)
+    aisles ||= store.aisles.includes(sections: :levels).to_a
 
     if [VossPlannerService::NEW_SLID, PalletPlannerService::NEW_SLID].include?(slid)
       aisle   = aisles.find { |a| a.aisle_num.to_s.strip.upcase == slid }
@@ -206,6 +207,8 @@ class AislePlannerService
 
       # ---------- STEP 2: fill the remaining sec_width with articles from aisles 60–80 only ----------
       # FCST < 10 and under 25 lb → upper levels like DT = 0, space for 2 × FCST (whatever its DT)
+      # DT = 0, under 22679.6 g and NO_OF_PACKS >= 2 → upper levels only, never level 00
+      # Over 22679.6 g (50 lb) and NO_OF_PACKS >= 2 → upper levels only, never level 00 (any DT)
       # DT = 1 and heavy articles → level 00; DT = 0 → upper levels
       relocate = relocation_candidates
       result[:candidates] = relocate.size
@@ -216,6 +219,8 @@ class AislePlannerService
         item =
           if low_runner?(a)
             upper_item(a, units: (2 * a["FCST"].to_f).ceil).tap { |i| upper_items << i if i }
+          elsif multi_pack_upper_only?(a) || heavy_multi_pack?(a)
+            upper_item(a).tap { |i| upper_items << i if i }
           elsif heavy?(a) || a["DT"] == 1
             ground_item(a).tap { |i| ground_items << i if i }
           elsif a["DT"] == 0
@@ -441,6 +446,16 @@ class AislePlannerService
   def ground_h(a) = first_positive(mm(a["UL_Height_Gross"]), mm(a["CP_Height"]))
 
   def heavy?(a) = !@ignore_weight && weight_g(a) > HEAVY_WEIGHT_G
+
+  # DT = 0, lighter than 22679.6 g and 2 or more packs → can never go on level 00
+  def multi_pack_upper_only?(a)
+    a["DT"] == 0 && a["NO_OF_PACKS"].to_i >= 2 && weight_g(a) < HEAVY_WEIGHT_G
+  end
+
+  # Heavier than 22679.6 g (50 lb) and 2 or more packs → can never go on level 00, whatever its DT
+  def heavy_multi_pack?(a)
+    a["NO_OF_PACKS"].to_i >= 2 && weight_g(a) > HEAVY_WEIGHT_G
+  end
 
   # FCST below 10 and a known weight under 25 lb
   def low_runner?(a)
