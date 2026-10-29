@@ -7,6 +7,7 @@ class AislePlannerService
   NO_LOCATION        = (60..80)
   GROUND             = 0
   HEAVY_WEIGHT_G     = 22679.6
+  MULTI_PACK_HEAVY_G = 31751.5  # 70 lb: heavier than this with NO_OF_PACKS >= 2 → never level 00
   LOW_FCST           = 10       # FCST below this ...
   LIGHT_WEIGHT_G     = 11339.8  # ... and lighter than 25 lb → planned like DT = 0 with 2 × FCST
   KG_TO_G            = 1000
@@ -208,7 +209,7 @@ class AislePlannerService
       # ---------- STEP 2: fill the remaining sec_width with articles from aisles 60–80 only ----------
       # FCST < 10 and under 25 lb → upper levels like DT = 0, space for 2 × FCST (whatever its DT)
       # DT = 0, under 22679.6 g and NO_OF_PACKS >= 2 → upper levels only, never level 00
-      # Over 22679.6 g (50 lb) and NO_OF_PACKS >= 2 → upper levels only, never level 00 (any DT)
+      # Over 31751.5 g (70 lb) and NO_OF_PACKS >= 2 → upper levels only, never level 00 (any DT)
       # DT = 1 and heavy articles → level 00; DT = 0 → upper levels
       relocate = relocation_candidates
       result[:candidates] = relocate.size
@@ -452,9 +453,9 @@ class AislePlannerService
     a["DT"] == 0 && a["NO_OF_PACKS"].to_i >= 2 && weight_g(a) < HEAVY_WEIGHT_G
   end
 
-  # Heavier than 22679.6 g (50 lb) and 2 or more packs → can never go on level 00, whatever its DT
+  # Heavier than 31751.5 g (70 lb) and 2 or more packs → can never go on level 00, whatever its DT
   def heavy_multi_pack?(a)
-    a["NO_OF_PACKS"].to_i >= 2 && weight_g(a) > HEAVY_WEIGHT_G
+    a["NO_OF_PACKS"].to_i >= 2 && weight_g(a) > MULTI_PACK_HEAVY_G
   end
 
   # FCST below 10 and a known weight under 25 lb
