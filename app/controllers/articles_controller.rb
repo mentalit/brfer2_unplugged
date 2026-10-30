@@ -119,14 +119,14 @@ class ArticlesController < ApplicationController
     redirect_to store_articles_path(store), alert: e.message
   end
 
-  def unplanned_by_hfb
+      def unplanned_by_hfb
     cutoff = Date.new(2026, 10, 2)
 
+    # SRP 4 is never listed as unplanned; a blank SRP is not SRP 4, so it stays in
     scope = @store.articles
       .where(planned: [false, nil])
-      .where.not(SRP: 4)
-      .where('"Start_Date_Sale" < ?', cutoff)
-      .where('"End_Date_Sale" > ? OR "End_Date_Sale" IS NULL', cutoff)
+      .where('"SRP" IS DISTINCT FROM 4')
+      .where('"Start_Date_Sale" < ? OR "Start_Date_Sale" IS NULL', cutoff)
       .where('EXISTS (
         SELECT 1
         FROM unnest(articles."SLID") AS s(value)

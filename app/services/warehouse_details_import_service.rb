@@ -5,6 +5,7 @@ class WarehouseDetailsImportService
   DEFAULT_AISLE_HEIGHT = 2286.0  # mm
   CM_TO_MM             = 10
   DIVISION_SUFFIX      = { "WH" => "FS", "SF" => "SS" }.freeze
+  EURO_MAXLENGTH       = 1660    # mm
 
   def initialize(store, file)
     @store = store
@@ -28,13 +29,15 @@ class WarehouseDetailsImportService
         first      = aisle_rows.first
         measure    = storage_measure(storage_rows, aisle_num, first["CHECKSTRING"])
 
+        max_length = euro?(first["RACKTYPE"]) ? EURO_MAXLENGTH : cm_to_mm(measure && measure["MAXLENGTH"])
+
         aisle = @store.aisles.find_or_initialize_by(aisle_num: aisle_num)
         aisle.assign_attributes(
           "aisle_height" => DEFAULT_AISLE_HEIGHT,
           "CHECKSTRING"  => first["CHECKSTRING"],
           "LOC"          => first["LOC"],
           "TYPE"         => "Sales",
-          "MAXLENGTH"    => cm_to_mm(measure && measure["MAXLENGTH"]),
+          "MAXLENGTH"    => max_length,
           "MAXWIDTH"     => cm_to_mm(measure && measure["MAXWIDTH"]),
           "DIVISION"     => first["DIVISION"],
           "RACKTYPE"     => first["RACKTYPE"]
@@ -70,8 +73,12 @@ class WarehouseDetailsImportService
 
   private
 
+  def euro?(racktype)
+    racktype.to_s.strip.upcase == "EURO"
+  end
+
   def cm_to_mm(value)
-    value.presence && (value.to_f * CM_TO_MM).round
+    value.present? ? (value.to_f * CM_TO_MM).round : nil
   end
 
   def read_rows
