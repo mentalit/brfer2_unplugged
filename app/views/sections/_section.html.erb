@@ -24,6 +24,13 @@
     <%= section.sec_height %>
   </div>
 
+  <% if section.unlinked %>
+    <div>
+      <strong>Not linked:</strong>
+      keeps its own depth
+    </div>
+  <% end %>
+
   <div>
     <strong>Aisle:</strong>
     <%= section.aisle_id %>

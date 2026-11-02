@@ -256,7 +256,7 @@ class SectionsController < ApplicationController
     end
 
     # Only allow a list of trusted parameters through.
-    def section_params
-      params.expect(section: [ :Sec_num, :sec_width, :sec_length, :sec_depth, :sec_height, :aisle_id ])
+       def section_params
+      params.expect(section: [ :Sec_num, :sec_width, :sec_length, :sec_depth, :sec_height, :unlinked, :aisle_id ])
     end
 end

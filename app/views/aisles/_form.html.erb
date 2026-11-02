@@ -57,6 +57,13 @@
   </div>
 
   <div>
+    <%= form.label :linked_aisle_id, "Back-to-back with", style: "display: block" %>
+    <%= form.select :linked_aisle_id,
+                    (Array(aisle.store&.aisles) - [aisle]).sort_by { |a| a.aisle_num.to_s }.map { |a| ["#{a.aisle_num} (#{a.RACKTYPE})", a.id] },
+                    { include_blank: "Not linked" } %>
+  </div>
+
+  <div>
     <%= form.label :store_id, style: "display: block" %>
     <%= form.text_field :store_id %>
   </div>

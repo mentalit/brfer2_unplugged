@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_28_143626) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_01_200000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -27,6 +27,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_28_143626) do
     t.bigint "store_id", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "linked_aisle_id"
+    t.index ["linked_aisle_id"], name: "index_aisles_on_linked_aisle_id"
     t.index ["store_id"], name: "index_aisles_on_store_id"
   end
 
@@ -108,6 +110,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_28_143626) do
     t.bigint "aisle_id", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.boolean "unlinked", default: false, null: false
     t.index ["aisle_id"], name: "index_sections_on_aisle_id"
   end
 
@@ -118,6 +121,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_28_143626) do
     t.datetime "updated_at", null: false
   end
 
+  add_foreign_key "aisles", "aisles", column: "linked_aisle_id", on_delete: :nullify
   add_foreign_key "aisles", "stores"
   add_foreign_key "articles", "stores"
   add_foreign_key "levels", "sections"

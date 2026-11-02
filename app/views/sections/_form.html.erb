@@ -37,6 +37,11 @@
   </div>
 
   <div>
+    <%= form.check_box :unlinked %>
+    <%= form.label :unlinked, "Not linked (keeps its own depth even though the aisle is back to back)" %>
+  </div>
+
+  <div>
     <%= form.label :aisle_id, style: "display: block" %>
     <%= form.text_field :aisle_id %>
   </div>

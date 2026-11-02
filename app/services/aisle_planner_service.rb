@@ -12,6 +12,12 @@ class AislePlannerService
   LIGHT_WEIGHT_G     = 11339.8  # ... and lighter than 25 lb → planned like DT = 0 with 2 × FCST
   KG_TO_G            = 1000
   DEFAULT_SEC_HEIGHT = 2286.0
+
+  # Back-to-back aisles (aisle.linked_aisle) share the depth of facing level 00s:
+  # section 03-01 faces 05-01. Either side plans as deep as it needs: it gets the pair's total
+  # depth minus the deepest article on the other side. No other maximum.
+  IKEA_EURO_DEPTH    = 3650.0   # IKEA + EURO pair
+  EURO_EURO_DEPTH    = 2690.0   # EURO + EURO pair
   SLID_FORMAT        = /\A\d{6}\z/
 
   # One per level: the sum of article widths on a level cannot exceed sec_width
@@ -64,13 +70,91 @@ class AislePlannerService
   # The slid's level; a missing level is created
   def self.level_for(section, slid)
     section.levels.to_a.find { |l| l.lev_num.to_i == slid[4, 2].to_i } ||
-      section.levels.create!(lev_num: slid[4, 2], lev_depth: section.sec_depth,
+      section.levels.create!(lev_num: slid[4, 2], lev_depth: upper_depth(section),
                              lev_width: section.sec_width.to_s)
   end
 
   def self.section_level(sections, slid)
     section = section_for(sections, slid)
     section && [section, level_for(section, slid)]
+  end
+
+  # Level 00 depth of a section whose aisle is back to back with another aisle:
+  #   pair total − deepest article on the facing level 00 (section with the same number).
+  # nil when there is no shared depth (not linked, no facing section, no total, or this section or the
+  # one behind it is marked "Not linked"); the section's own depth is used then.
+  def self.shared_ground_depth(section, aisle = section.aisle)
+    partner = aisle.linked_aisle
+    return nil unless partner
+    return nil if section.unlinked
+
+    total = pair_depth(aisle, partner)
+    return nil unless total.positive?
+
+    facing = partner.sections.find { |s| s.Sec_num.to_i == section.Sec_num.to_i }
+    return nil if facing.nil? || facing.unlinked
+
+    facing_ground = facing.levels.find { |l| l.lev_num.to_i == GROUND }
+    used = facing_ground ? deepest_ground_length(facing_ground) : 0.0
+    [total - used, 0.0].max
+  end
+
+  # Total depth of a back-to-back pair, front of one aisle to front of the other.
+  # IKEA/EURO 3650, EURO/EURO 2690, any other pair: both aisles' MAXLENGTH added together.
+  def self.pair_depth(aisle, partner)
+    case [rack_type(aisle), rack_type(partner)].sort
+    when %w[EURO IKEA] then IKEA_EURO_DEPTH
+    when %w[EURO EURO] then EURO_EURO_DEPTH
+    else
+      num = ->(v) { v.to_s.tr(",", ".").to_f }
+      num.(aisle["MAXLENGTH"]) + num.(partner["MAXLENGTH"])
+    end
+  end
+
+  # Writes the shared level 00 depth into sec_depth of every section of a linked pair
+  # (this aisle and the one behind it). Sections with no shared depth ("Not linked", no section behind)
+  # get the aisle's own MAXLENGTH. Called after anything is planned or unplanned.
+  def self.refresh_shared_depths(aisle)
+    return unless aisle
+
+    Aisle.where(id: [aisle.id, aisle.linked_aisle_id].compact).includes(:linked_aisle, sections: :levels).each do |a|
+      next unless a.linked_aisle
+
+      own = a["MAXLENGTH"].to_s.tr(",", ".").to_f
+      a.sections.each do |s|
+        depth = shared_ground_depth(s, a) || (own if own.positive?)
+        s.update_column(:sec_depth, depth) if depth
+      end
+    end
+  end
+
+  # An aisle that is no longer linked: sec_depth back to the aisle's own MAXLENGTH
+  def self.reset_depths(aisle)
+    return unless aisle && aisle["MAXLENGTH"].to_f.positive?
+    aisle.sections.update_all(sec_depth: aisle["MAXLENGTH"])
+  end
+
+  # Depth of the levels above 00. In a linked aisle sec_depth holds the shared level 00 depth,
+  # so the upper levels use the aisle's own MAXLENGTH.
+  def self.upper_depth(section, aisle = section.aisle)
+    own = aisle["MAXLENGTH"].to_s.tr(",", ".").to_f
+    aisle.linked_aisle_id && own.positive? ? own : section.sec_depth.to_s.tr(",", ".").to_f
+  end
+
+  # Deepest article placed on a level 00 (UL length, CP length when UL is missing)
+  def self.deepest_ground_length(level)
+    Placement.where(level_id: level.id).includes(:article)
+             .map { |p| ground_length(p.article) }.max || 0.0
+  end
+
+  def self.ground_length(article)
+    num = ->(v) { v.to_s.tr(",", ".").to_f }
+    [num.(article["UL_Length_Gross"]), num.(article["CP_Length"])].find(&:positive?) || 0.0
+  end
+
+  # "IKEA" / "EURO"
+  def self.rack_type(aisle)
+    aisle["RACKTYPE"].to_s.strip.upcase
   end
 
   # new_slid as typed on the form: trimmed, upper case, 5 digits padded to 6 (10300 → 010300)
@@ -128,9 +212,9 @@ class AislePlannerService
       problems << "#{mm.(w - free)} over the level's free width (article #{mm.(w)} wide, #{mm.([free, 0].max)} free)"
     end
 
-    # Depth
+    # Depth (level 00 of a back-to-back aisle: the depth the facing level 00 leaves)
     length = ground ? first.(num.(article["UL_Length_Gross"]), num.(article["CP_Length"])) : num.(article["CP_Length"])
-    depth  = num.(section.sec_depth)
+    depth  = ground ? (shared_ground_depth(section) || num.(section.sec_depth)) : upper_depth(section)
     if depth.positive? && length > depth
       problems << "#{mm.(length - depth)} too deep (article #{mm.(length)}, section #{mm.(depth)})"
     end
@@ -231,8 +315,16 @@ class AislePlannerService
       end
 
       bins = @bins.values
-      fill(ground_items, bins.select(&:ground?), result)
+      # Back-to-back aisle: level 00 is filled by depth (longest articles where the other side is shallowest)
+      if @aisle.linked_aisle
+        fill_by_depth(ground_items, bins.select(&:ground?), result)
+      else
+        fill(ground_items, bins.select(&:ground?), result)
+      end
       fill(upper_items,  bins.reject(&:ground?), result)
+
+      # Back-to-back aisles: sec_depth of both sides = the depth each side has left
+      self.class.refresh_shared_depths(@aisle)
     end
 
     result
@@ -299,13 +391,21 @@ class AislePlannerService
 
   # ---------- bins ----------
 
+  # Level 00 of a back-to-back aisle gets the depth the facing level 00 leaves;
+  # upper levels of a linked aisle use the aisle's MAXLENGTH, otherwise the section's depth
   def build_bins
     @bins = {}
     @sections.each do |s|
       s.levels.to_a.sort_by { |l| l.lev_num.to_i }.each do |l|
+        depth = if l.lev_num.to_i == GROUND
+                  self.class.shared_ground_depth(s, @aisle) || mm(s.sec_depth)
+                else
+                  self.class.upper_depth(s, @aisle)
+                end
+
         @bins[l.id] = Bin.new(section: s, level: l,
                               space: Space.new(width: mm(s.sec_width), used: 0.0),
-                              depth: mm(s.sec_depth), height: 0.0)
+                              depth: depth, height: 0.0)
       end
     end
   end
@@ -423,6 +523,32 @@ class AislePlannerService
         result[:no_room] += 1
       end
     end
+  end
+
+  # Level 00 of a back-to-back aisle. Each level 00's depth = what the facing level 00 leaves,
+  # so the deepest bin is the one facing the shallowest article in the linked aisle.
+  # Sections are filled from the deepest bin down, each with the longest articles that still fit
+  # (depth and free width), so long articles go where the other side leaves the most room.
+  def fill_by_depth(items, bins, result)
+    max_depth = bins.map(&:depth).max || 0.0
+    remaining = items.sort_by { |i| [-i.length, -i.width] }
+
+    too_deep, remaining = remaining.partition { |i| bins.any? && i.length > max_depth }
+    result[:too_deep] += too_deep.size
+
+    bins.sort_by { |b| -b.depth }.each do |bin|
+      placed = []
+      remaining.each do |item|
+        next if item.length > bin.depth || item.width > bin.free
+        bin.space.used += item.width
+        place(item.article, bin, item.qty)
+        result[:placed] += 1
+        placed << item
+      end
+      remaining -= placed
+    end
+
+    result[:no_room] += remaining.size
   end
 
   # Articles with several locations get one placement per location; new_slid keeps the first one

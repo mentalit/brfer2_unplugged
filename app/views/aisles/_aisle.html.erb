@@ -19,6 +19,13 @@
     <%= aisle.RACKTYPE %>
   </div>
 
+  <% if aisle.linked_aisle %>
+    <div>
+      <strong>Back-to-back with:</strong>
+      <%= aisle.linked_aisle.aisle_num %>
+    </div>
+  <% end %>
+
   
 
   <% if action_name != 'index' %>

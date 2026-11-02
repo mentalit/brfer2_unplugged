@@ -79,6 +79,6 @@ class AislesController < ApplicationController
 
     # Only allow a list of trusted parameters through.
     def aisle_params
-      params.expect(aisle: [ :aisle_num, :aisle_height, :CHECKSTRING, :LOC, :TYPE, :MAXLENGTH, :MAXWIDTH, :DIVISION, :RACKTYPE, :store_id ])
+      params.expect(aisle: [ :aisle_num, :aisle_height, :CHECKSTRING, :LOC, :TYPE, :MAXLENGTH, :MAXWIDTH, :DIVISION, :RACKTYPE, :linked_aisle_id, :store_id ])
     end
 end

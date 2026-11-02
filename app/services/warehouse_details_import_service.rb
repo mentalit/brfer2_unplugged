@@ -5,7 +5,6 @@ class WarehouseDetailsImportService
   DEFAULT_AISLE_HEIGHT = 2286.0  # mm
   CM_TO_MM             = 10
   DIVISION_SUFFIX      = { "WH" => "FS", "SF" => "SS" }.freeze
-  EURO_MAXLENGTH       = 1660    # mm
 
   def initialize(store, file)
     @store = store
@@ -29,7 +28,8 @@ class WarehouseDetailsImportService
         first      = aisle_rows.first
         measure    = storage_measure(storage_rows, aisle_num, first["CHECKSTRING"])
 
-        max_length = euro?(first["RACKTYPE"]) ? EURO_MAXLENGTH : cm_to_mm(measure && measure["MAXLENGTH"])
+        # IKEA 2000 mm, EURO 1650 mm (Aisle::RACK_DEPTHS); any other rack type uses the storage row
+        max_length = Aisle.rack_depth(first["RACKTYPE"]) || cm_to_mm(measure && measure["MAXLENGTH"])
 
         aisle = @store.aisles.find_or_initialize_by(aisle_num: aisle_num)
         aisle.assign_attributes(
@@ -66,16 +66,15 @@ class WarehouseDetailsImportService
           level.save!
         end
       end
+
+      # Back-to-back aisles: the import just reset sec_depth to MAXLENGTH, so put the shared level 00 depth back
+      @store.aisles.where.not(linked_aisle_id: nil).each { |a| AislePlannerService.refresh_shared_depths(a) }
     end
 
     aisles_count
   end
 
   private
-
-  def euro?(racktype)
-    racktype.to_s.strip.upcase == "EURO"
-  end
 
   def cm_to_mm(value)
     value.present? ? (value.to_f * CM_TO_MM).round : nil

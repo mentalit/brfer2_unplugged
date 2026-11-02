@@ -226,14 +226,18 @@
   </thead>
 
   <% @sections.each do |section| %>
-    <% by_level = @grouped[section.id] || {} %>
-    <% levels   = section.levels.sort_by { |l| l.lev_num.to_i } %>
+    <% by_level     = @grouped[section.id] || {} %>
+    <% levels       = section.levels.sort_by { |l| l.lev_num.to_i } %>
+    <%# Back-to-back aisles: level 00 gets what the facing level 00 leaves, upper levels the aisle's own depth %>
+    <% shared_depth = AislePlannerService.shared_ground_depth(section, @aisle) %>
+    <% ground_depth = shared_depth || section.sec_depth.to_s.tr(",", ".").to_f %>
+    <% upper_depth  = AislePlannerService.upper_depth(section, @aisle) %>
     <tbody>
       <tr style="background: #ddd;">
         <th colspan="8" style="text-align: left;">
           <%= link_to "Section #{format('%02d', section.Sec_num.to_i)}", section %>
           — width <%= section.sec_width %> mm,
-          depth <%= section.sec_depth %> mm,
+                    depth <%= ground_depth.round %> mm<% if shared_depth %> (level 00, shared with aisle <%= @aisle.linked_aisle.aisle_num %>; upper levels <%= upper_depth.round %> mm)<% elsif @aisle.linked_aisle_id && section.unlinked %> (not linked)<% end %>,
           height <%= section.sec_height.presence || 2286 %> mm
           (<%= by_level.values.sum(&:size) %> <%= "article".pluralize(by_level.values.sum(&:size)) %>)
         </th>
@@ -244,6 +248,7 @@
         <tr style="background: #f2f2f2;">
           <td colspan="8" style="padding-left: 1.5em;">
             <strong>Level <%= level.lev_num %></strong>
+            — depth <%= (level.lev_num.to_i == AislePlannerService::GROUND ? ground_depth : upper_depth).round %> mm
             <% if level.lev_height.to_f.positive? %>— height <%= level.lev_height %> mm<% end %>
             (<%= rows.size %> <%= "article".pluralize(rows.size) %>)
           </td>

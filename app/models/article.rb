@@ -12,12 +12,26 @@ class Article < ApplicationRecord
   after_initialize { self.planned = false if new_record? }
   before_create    { self.planned = false }
 
+  # DT = 1 and UL taller than it is long → UL length and height are switched
+  before_save :switch_ul_height_and_length
+
   before_validation :prepare_manual_plan, if: -> { manual_planning && persisted? }
   validate          :manual_location_found
   after_save        :apply_manual_plan, if: -> { @manual_plan }
   after_save        :release_dropped_locations, if: -> { @dropped_slids.present? }
 
+  # Same rule as switch_ul_height_and_length, for one article's values (used by the console script too)
+  def self.ul_switch_needed?(dt, height, length)
+    num = ->(v) { v.to_s.tr(",", ".").to_f }
+    dt.to_i == 1 && num.(height) > num.(length)
+  end
+
   private
+
+  def switch_ul_height_and_length
+    return unless self.class.ul_switch_needed?(self["DT"], self["UL_Height_Gross"], self["UL_Length_Gross"])
+    self["UL_Height_Gross"], self["UL_Length_Gross"] = self["UL_Length_Gross"], self["UL_Height_Gross"]
+  end
 
   # Works out what the edit form asked for:
   #   new_slid cleared          -> unplan the article
@@ -56,10 +70,12 @@ class Article < ApplicationRecord
     plan         = @manual_plan
     @manual_plan = nil
 
+    old_aisles = placement_aisles
     Placement.where(article_id: id).delete_all
 
     if plan == :clear
       update_column(:planned, false)
+      refresh_depths(old_aisles)
       return
     end
 
@@ -74,6 +90,7 @@ class Article < ApplicationRecord
       quantity:   manual_quantity(level)
     )
     update_column(:planned, true)
+    refresh_depths(old_aisles + [section.aisle_id])
   end
 
   # Locations taken out of SLID: their Aisles placements are deleted, so the next
@@ -82,7 +99,9 @@ class Article < ApplicationRecord
     dropped        = @dropped_slids
     @dropped_slids = nil
 
+    old_aisles = placement_aisles
     Placement.where(article_id: id, mode: AislePlannerService::MODE, new_slid: dropped).delete_all
+    refresh_depths(old_aisles)
 
     remaining = Placement.where(article_id: id).order(:id).pluck(:new_slid)
     if remaining.empty?
@@ -90,6 +109,17 @@ class Article < ApplicationRecord
     elsif dropped.include?(new_slid)
       update_column(:new_slid, remaining.first)
     end
+  end
+
+  # Aisle ids this article is placed in
+  def placement_aisles
+    Section.where(id: Placement.where(article_id: id).select(:section_id)).distinct.pluck(:aisle_id)
+  end
+
+  # Back-to-back aisles: sec_depth follows what is planned on level 00
+  def refresh_depths(aisle_ids)
+    Aisle.where(id: aisle_ids.uniq).where.not(linked_aisle_id: nil)
+         .each { |a| AislePlannerService.refresh_shared_depths(a) }
   end
 
   # Voss: RSSQ, PALLET: PALQ, level 00: PALQ, upper levels: MIN
