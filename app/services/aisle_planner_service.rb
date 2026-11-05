@@ -19,8 +19,8 @@ class AislePlannerService
   IKEA_EURO_DEPTH    = 3650.0   # IKEA + EURO pair
   EURO_EURO_DEPTH    = 2690.0   # EURO + EURO pair
   SLID_FORMAT        = /\A\d{6}\z/
-  # New articles: no SLID at all, this Start_Date_Sale and one of these DIVs.
-  # They are planned like the aisle 60–80 articles.
+  # New articles: no SLID at all, this Start_Date_Sale and DIV SF or WH.
+  # Planned like the aisle 60–80 articles.
   NEW_ARTICLE_START  = Date.new(2027, 1, 1)
   NEW_ARTICLE_DIVS   = %w[SF WH].freeze
 
@@ -29,7 +29,8 @@ class AislePlannerService
     def free = width - used
   end
 
-  Bin = Struct.new(:section, :level, :space, :depth, :height, keyword_init: true) do
+  # depth / height = the space one level has; sec_height = the section's full height
+  Bin = Struct.new(:section, :level, :space, :depth, :height, :sec_height, keyword_init: true) do
     def ground? = level.lev_num.to_i == GROUND
     def free    = space.free
   end
@@ -422,9 +423,11 @@ class AislePlannerService
                   self.class.upper_depth(s, @aisle)
                 end
 
+        sec_h = mm(s.sec_height)
         @bins[l.id] = Bin.new(section: s, level: l,
                               space: Space.new(width: mm(s.sec_width), used: 0.0),
-                              depth: depth, height: 0.0)
+                              depth: depth, height: 0.0,
+                              sec_height: sec_h.positive? ? sec_h : DEFAULT_SEC_HEIGHT)
       end
     end
   end
@@ -442,9 +445,9 @@ class AislePlannerService
   end
 
   # A placement that is already in the aisle takes its space again.
-  # Articles an earlier planning put on an upper level away from their own slid_h may have been
-  # stacked in several columns (MIN × CP_Height taller than the level), so they take
-  # CP_Width × columns, and the level keeps the height it was planned with.
+  # Articles an earlier planning put on an upper level away from their own slid_h are laid out
+  # like upper_width (stacked as high and as deep as the level allows, the rest in columns),
+  # so they take CP_Width × columns, and the level keeps the height it was planned with.
   def occupy_existing(p, occ_height)
     bin = @bins[p.level_id]
     return unless bin
@@ -454,11 +457,13 @@ class AislePlannerService
 
     a       = p.article
     w       = mm(a["CP_Width"])
+    l       = mm(a["CP_Length"])
     h       = mm(a["CP_Height"])
     lev_h   = p.level.lev_height.to_f
     columns = 1
     if h.positive? && lev_h.positive?
-      per_col = [(lev_h / h).floor, 1].max
+      # same layout as upper_width: stacks as high as the level, rows as deep as the level
+      per_col = [(lev_h / h).floor, 1].max * depth_rows(l, bin.depth)
       columns = ([p.quantity.to_i, 1].max.to_f / per_col).ceil
     end
 
@@ -504,13 +509,26 @@ class AislePlannerService
              units: [qty.to_i, 1].max, qty: qty)
   end
 
-  # MIN × CP_Height must fit the level height; if not, stack in columns (lower and wider)
+  # Width an upper-level article takes. Its units are stacked as high as the level allows
+  # and placed in rows one behind the other as deep as the level allows; only what is left over
+  # goes into extra columns side by side. So the level's height AND depth are used before its width.
+  # nil = one unit does not fit the level's height or depth.
   def upper_width(item, bin)
-    return nil unless bin.height.positive? && item.height <= bin.height
-    return item.width if item.units * item.height <= bin.height
+    return nil unless bin.height.positive? && item.height <= bin.height && item.length <= bin.depth
 
-    per_col = (bin.height / item.height).floor
+    per_col = (bin.height / item.height).floor * depth_rows(item.length, bin.depth)
     (item.units.to_f / per_col).ceil * item.width
+  end
+
+  # How many units fit one behind the other in the level's depth (at least 1)
+  def depth_rows(length, depth)
+    return 1 unless length.positive? && depth.positive?
+    [(depth / length).floor, 1].max
+  end
+
+  # Level 00: the article must fit the depth and the section's height
+  def ground_fits?(item, bin)
+    item.length <= bin.depth && item.height <= bin.sec_height
   end
 
   # Best fit, widest first: each article goes to the level where it leaves the smallest gap,
@@ -526,6 +544,7 @@ class AislePlannerService
       best_w = nil
       bins.each do |b|
         next if item.length > b.depth
+        next if b.ground? && !ground_fits?(item, b)
         w = b.ground? ? item.width : upper_width(item, b)
         next unless w && w <= b.free
         if best.nil? || (b.free - w) < (best.free - best_w)
@@ -547,7 +566,7 @@ class AislePlannerService
   # Level 00 of a back-to-back aisle. Each level 00's depth = what the facing level 00 leaves,
   # so the deepest bin is the one facing the shallowest article in the linked aisle.
   # Sections are filled from the deepest bin down, each with the longest articles that still fit
-  # (depth and free width), so long articles go where the other side leaves the most room.
+  # (depth, height and free width), so long articles go where the other side leaves the most room.
   def fill_by_depth(items, bins, result)
     max_depth = bins.map(&:depth).max || 0.0
     remaining = items.sort_by { |i| [-i.length, -i.width] }
@@ -558,7 +577,7 @@ class AislePlannerService
     bins.sort_by { |b| -b.depth }.each do |bin|
       placed = []
       remaining.each do |item|
-        next if item.length > bin.depth || item.width > bin.free
+        next if !ground_fits?(item, bin) || item.width > bin.free
         bin.space.used += item.width
         place(item.article, bin, item.qty)
         result[:placed] += 1

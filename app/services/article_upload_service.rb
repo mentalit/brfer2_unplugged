@@ -9,8 +9,8 @@ class ArticleUploadService
   SALES_METHOD_DIVS = { 1 => "SF", 2 => "WH" }.freeze
 
   # Articles starting on this date are uploaded even with missing fields:
-  # Al010 articles not on the article file are created, a blank Division is allowed,
-  # and the future-date rule is skipped
+  # Al010 articles not on the article file are created and the future-date rule is skipped.
+  # They still need DIV SF or WH (a blank DIV comes from Al010 Sales Method 1 → SF, 2 → WH).
   FORCE_START_DATE = Date.new(2027, 1, 1)
 
   # Pre-planned rule: an article is imported as planned at its slid_h when
@@ -98,9 +98,10 @@ class ArticleUploadService
     "pa"              => [:integer, ["Product Area"]],
     "Start_Date_Sale" => [:date,    ["SSD"]],
     "End_Date_Sale"   => [:date,    ["EDS"]],
-    # used only when the article has no DIV / no MIN (see apply_al010)
+    # used only when the article has no DIV / no MIN / no DT (see apply_al010)
     "_sales_method"   => [:integer,      ["Sales Method"]],
-    "_al010_mpq"      => [:positive_int, ["MPQ"]]
+    "_al010_mpq"      => [:positive_int, ["MPQ"]],
+    "_del_type"       => [:integer,      ["Del Type"]]
   }.freeze
 
   # The article-number column that marks the header row in the article / DWP files
@@ -170,7 +171,7 @@ class ArticleUploadService
       attrs = attrs.merge(items[k] || {}) # DWP values override SSD/EDS
       fill_blanks(attrs, slm0002[k])      # SLM0002 fills empty dimensions + NO_OF_PACKS
       article = existing[k]
-      apply_al010(attrs, article, al010[k], result) # Al010 fills empty name, HFB, PA, dates, DIV and MIN
+      apply_al010(attrs, article, al010[k], result) # Al010 fills empty name, HFB, PA, dates, DT and DIV
 
       start_date = attrs.key?("Start_Date_Sale") ? attrs["Start_Date_Sale"] : article&.Start_Date_Sale
       end_date   = attrs.key?("End_Date_Sale")   ? attrs["End_Date_Sale"]   : article&.End_Date_Sale
@@ -178,13 +179,13 @@ class ArticleUploadService
       div        = (attrs.key?("DIV") ? attrs["DIV"] : article&.DIV).to_s.strip.upcase
       forced     = start_date == FORCE_START_DATE
 
-      # Should never happen: no DIV in any file and no Sales Method 1 / 2 in Al010
+      # No DIV in any file and no Sales Method 1 / 2 in Al010 → not SF / WH, so not uploaded
       if div.empty?
         result[:div_blank] += 1
         result[:div_blank_artnos] << k
       end
 
-      if !(DIVISIONS.include?(div) || (forced && div.empty?))
+      if !DIVISIONS.include?(div)
         result[:skipped_division] += 1
       elsif stock == 0 && end_date && end_date < today
         result[:skipped_expired_no_stock] += 1
@@ -206,10 +207,10 @@ class ArticleUploadService
 
         # MPQ is handled on its own so it is always written:
         # slm MPQ / Local MPQ / Central MPQ -> DWP MP Qty. 0 and blank never count.
-        mpq       = attrs.delete("MPQ")
-        dwp_mpq   = attrs.delete("_dwp_mpq")
-        dwp_palq  = attrs.delete("_dwp_palq")
-        mpq       = dwp_mpq if mpq.nil?
+        mpq      = attrs.delete("MPQ")
+        dwp_mpq  = attrs.delete("_dwp_mpq")
+        dwp_palq = attrs.delete("_dwp_palq")
+        mpq      = dwp_mpq if mpq.nil?
         al010_mpq = attrs.delete("_al010_mpq")
 
         fill_from_fallback(attrs, article, "PALQ", dwp_palq)
@@ -383,14 +384,22 @@ class ArticleUploadService
   # Al010 for one article:
   #   - fills empty name, HFB, PA and dates
   #   - no DIV (nil or blank): Sales Method 1 → SF, 2 → WH
+  #   - no DT (nil or blank):  DT = Del Type
   #   - keeps Al010 MPQ for MIN (see min_from_mpq)
-  # The article's saved value counts too, so an upload without a DIV column keeps what is there.
+  # The article's saved value counts too, so an upload without a DIV / MIN column keeps what is there.
   def apply_al010(attrs, article, row, result)
     return if row.blank?
 
     sales_method = row["_sales_method"]
     al010_mpq    = row["_al010_mpq"]
-    fill_blanks(attrs, row.except("_sales_method", "_al010_mpq"))
+    del_type     = row["_del_type"]
+    fill_blanks(attrs, row.except("_sales_method", "_al010_mpq", "_del_type"))
+
+    dt = attrs.key?("DT") ? attrs["DT"] : article&.DT
+    if dt.to_s.strip.empty? && !del_type.nil?
+      attrs["DT"] = del_type
+      result[:dt_from_al010] += 1
+    end
 
     div = attrs.key?("DIV") ? attrs["DIV"] : article&.DIV
     if div.blank? && (from_sales = SALES_METHOD_DIVS[sales_method])

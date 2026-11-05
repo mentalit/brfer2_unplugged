@@ -6,6 +6,11 @@ class PalletPlannerService
   # CP_Weight_Gross is stored in kg; the Weight limit is entered in g
   KG_TO_G = 1000
 
+  # Articles must currently be located in this SLID range...
+  SLID_RANGE = 590000..800000
+  # ...or have no SLID and start selling on this date
+  NEW_ARTICLE_START_DATE = Date.new(2027, 1, 1)
+
   def self.pallet_aisle?(aisle)
     aisle.aisle_num.to_s.strip.upcase == PALLET_AISLE
   end
@@ -33,6 +38,7 @@ class PalletPlannerService
 
     candidates.each do |article|
       break if @article_limit && planned >= @article_limit
+      next unless location_ok?(article)
       next unless fits?(article)
 
       Article.transaction do
@@ -65,6 +71,41 @@ class PalletPlannerService
     scope = scope.where(pa: @pa) if @pa
     scope = scope.where(FCST: ..@max_fcst) if @max_fcst
     scope.order(Article.arel_table[:FCST].desc.nulls_last)
+  end
+
+  # Any SLID between 590000 and 800000, or no SLID and Start_Date_Sale = 01/01/27
+  def location_ok?(article)
+    slids = slids_for(article)
+
+    if slids.empty?
+      start_date(article) == NEW_ARTICLE_START_DATE
+    else
+      slids.any? { |s| s.match?(/\A\d+\z/) && SLID_RANGE.cover?(s.to_i) }
+    end
+  end
+
+  # Every SLID of an article, split on spaces, commas or semicolons
+  def slids_for(article)
+    Array(article["SLID"]).flat_map { |s| s.to_s.split(/[\s,;]+/) }.reject(&:empty?)
+  end
+
+  def start_date(article)
+    value = article["Start_Date_Sale"]
+    return nil if value.nil?
+    return value.to_date if value.is_a?(Date) || value.is_a?(Time)
+
+    s = value.to_s.strip
+    return nil if s.empty?
+
+    ["%m/%d/%y", "%m/%d/%Y", "%Y-%m-%d"].each do |format|
+      begin
+        return Date.strptime(s, format)
+      rescue ArgumentError
+        next
+      end
+    end
+
+    nil
   end
 
   # Blank limit = no limit. With a limit set, the CP value must exist and be within it.

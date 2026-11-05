@@ -10,8 +10,8 @@ class ArticlesController < ApplicationController
       AND s.value::integer BETWEEN ? AND ?
   )'.freeze
 
-  # New articles: no SLID at all (nil, {} or only blanks), a given Start_Date_Sale, and DIV SF or WH
-  NEW_ARTICLE_SQL = '"Start_Date_Sale" = ? AND upper(btrim("DIV")) IN (\'SF\', \'WH\') AND NOT EXISTS (
+  # New articles: no SLID at all (nil, {} or only blanks), a given Start_Date_Sale, and DIV SF, WH or blank
+  NEW_ARTICLE_SQL = '"Start_Date_Sale" = ? AND upper(coalesce(btrim("DIV"), \'\')) IN (\'SF\', \'WH\', \'\') AND NOT EXISTS (
     SELECT 1
     FROM unnest(articles."SLID") AS s(value)
     WHERE btrim(s.value) <> \'\'
@@ -169,6 +169,9 @@ class ArticlesController < ApplicationController
     missing = r[:missing_mpq_artnos]
     missing_text = missing.any? ? " (#{missing.first(20).join(', ')}#{missing.size > 20 ? ', …' : ''})" : ""
 
+    blank_div      = r[:div_blank_artnos]
+    blank_div_text = blank_div.any? ? " (#{blank_div.first(20).join(', ')}#{blank_div.size > 20 ? ', …' : ''})" : ""
+
     notice = "Created #{r[:created]}, updated #{r[:updated]}, unchanged #{r[:unchanged]}. " \
              "Pre-planned at slid_h: #{r[:pre_planned]}. " \
              "Placements created: #{r[:placements_created]} (no matching level: #{r[:placements_no_level]}). " \
@@ -180,7 +183,9 @@ class ArticlesController < ApplicationController
              "DWP file found: #{r[:item_file]}, matched #{r[:dwp_matched]} of #{r[:articles_total]} articles. " \
              "SLM0002 matched: #{r[:slm0002_matched]}. Al010 matched: #{r[:al010_matched]}. " \
              "MPQ read from: #{r[:mpq_columns]}. " \
-             "DIV from Al010: #{r[:div_from_al010]}. MIN from MPQ: #{r[:min_from_mpq]} (#{r[:min_from_al010]} from Al010)."
+             "DT from Al010 Del Type: #{r[:dt_from_al010]}. " \
+             "DIV from Al010 Sales Method: #{r[:div_from_al010]}. Blank DIV: #{r[:div_blank]}#{blank_div_text}. " \
+             "MIN from MPQ: #{r[:min_from_mpq]} (#{r[:min_from_al010]} from Al010)."
 
     redirect_to store_articles_path(store), notice: notice
   rescue ArticleUploadService::UploadError, CSV::MalformedCSVError => e
