@@ -3,6 +3,11 @@
 <p>Planned: <%= @planned_basement.count %></p>
 <p>Total: <%= @unplanned_basement.count %></p>
 <p>SRP 1 unplanned basement: <%= @unplanned_basement_srp_1.count %></p>
+<p>
+  New articles (Start Date Sale <%= @new_article_start.strftime("%m/%d/%Y") %>, no SLID):
+  <%= @new_planned %> planned, <%= @new_unplanned %> unplanned, <%= @new_planned + @new_unplanned %> total
+  (included in the numbers above)
+</p>
 
 <% [["HFB", @basement_by_hfb], ["PA", @basement_by_pa]].each do |label, rows| %>
   <h3>By <%= label %></h3>

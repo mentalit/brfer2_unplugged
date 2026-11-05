@@ -12,6 +12,9 @@ class Article < ApplicationRecord
   after_initialize { self.planned = false if new_record? }
   before_create    { self.planned = false }
 
+  # No MIN (blank or 0) → MIN = MPQ, on every save
+  before_save { self["MIN"] = self["MPQ"] if self["MIN"].to_i.zero? && self["MPQ"].to_i.positive? }
+
   # DT = 1 and UL taller than it is long → UL length and height are switched
   before_save :switch_ul_height_and_length
 

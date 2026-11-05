@@ -2,6 +2,21 @@ class ArticlesController < ApplicationController
   before_action :set_article, only: %i[ show edit update destroy ]
   before_action :get_store, only: %i[ new create index totals non_srp_4 search planned_basement unplanned_by_hfb ]
 
+  # A slid_h between two numbers (e.g. the basement, 580100–810000)
+  SLID_RANGE_SQL = 'EXISTS (
+    SELECT 1
+    FROM unnest(articles."SLID") AS s(value)
+    WHERE s.value ~ \'^[0-9]+$\'
+      AND s.value::integer BETWEEN ? AND ?
+  )'.freeze
+
+  # New articles: no SLID at all (nil, {} or only blanks), a given Start_Date_Sale, and DIV SF or WH
+  NEW_ARTICLE_SQL = '"Start_Date_Sale" = ? AND upper(btrim("DIV")) IN (\'SF\', \'WH\') AND NOT EXISTS (
+    SELECT 1
+    FROM unnest(articles."SLID") AS s(value)
+    WHERE btrim(s.value) <> \'\'
+  )'.freeze
+
   # GET /articles or /articles.json
   def index
     @articles = @store.articles
@@ -68,25 +83,23 @@ class ArticlesController < ApplicationController
   end
 
   def planned_basement
-    basement_sql = '"SRP" != ? AND EXISTS (
-      SELECT 1
-      FROM unnest(articles."SLID") AS s(value)
-      WHERE s.value ~ \'^[0-9]+$\'
-        AND s.value::integer BETWEEN ? AND ?
-    )'
+    new_start = AislePlannerService::NEW_ARTICLE_START
 
-    @unplanned_basement = @store.articles.where(basement_sql, 4, 580100, 810000)
+    # Basement slid_h, or a new article (Start_Date_Sale = NEW_ARTICLE_START, no SLID)
+    basement = @store.articles.where("(#{SLID_RANGE_SQL}) OR (#{NEW_ARTICLE_SQL})", 580100, 810000, new_start)
+
+    # Not SRP 4; a blank SRP is not SRP 4, so it stays in
+    @unplanned_basement = basement.where('"SRP" IS DISTINCT FROM 4')
 
     @planned_basement = @unplanned_basement.where(planned: true)
 
-    @unplanned_basement_srp_1 = @store.articles
-      .where(SRP: 1, planned: false)
-      .where('EXISTS (
-        SELECT 1
-        FROM unnest(articles."SLID") AS s(value)
-        WHERE s.value ~ \'^[0-9]+$\'
-          AND s.value::integer BETWEEN ? AND ?
-      )', 580100, 810000)
+    @unplanned_basement_srp_1 = basement.where(SRP: 1, planned: [false, nil])
+
+    # The new articles on their own
+    new_articles       = @unplanned_basement.where(NEW_ARTICLE_SQL, new_start)
+    @new_planned       = new_articles.where(planned: true).count
+    @new_unplanned     = new_articles.where(planned: [false, nil]).count
+    @new_article_start = new_start
 
     counts = [
       Arel.sql('COUNT(*) FILTER (WHERE "planned" = true)'),
@@ -98,7 +111,7 @@ class ArticlesController < ApplicationController
     @basement_by_pa  = @unplanned_basement.group(:pa).order(:pa).pluck(:pa, *counts)
   end
 
-    def remove
+  def remove
     store = Store.find(params[:store_id])
 
     if params[:remove_file].blank?
@@ -119,23 +132,22 @@ class ArticlesController < ApplicationController
     redirect_to store_articles_path(store), alert: e.message
   end
 
-      def unplanned_by_hfb
-    cutoff = Date.new(2026, 10, 2)
+  def unplanned_by_hfb
+    cutoff    = Date.new(2026, 10, 2)
+    new_start = AislePlannerService::NEW_ARTICLE_START
 
-    # SRP 4 is never listed as unplanned; a blank SRP is not SRP 4, so it stays in
+    # SRP 4 is never listed as unplanned; a blank SRP is not SRP 4, so it stays in.
+    # Basement slid_h before the cutoff, or a new article (Start_Date_Sale = NEW_ARTICLE_START, no SLID)
     scope = @store.articles
       .where(planned: [false, nil])
       .where('"SRP" IS DISTINCT FROM 4')
-      .where('"Start_Date_Sale" < ? OR "Start_Date_Sale" IS NULL', cutoff)
-      .where('EXISTS (
-        SELECT 1
-        FROM unnest(articles."SLID") AS s(value)
-        WHERE s.value ~ \'^[0-9]+$\'
-          AND s.value::integer BETWEEN ? AND ?
-      )', 590000, 819999)
+      .where('"Start_Date_Sale" < ? OR "Start_Date_Sale" IS NULL OR "Start_Date_Sale" = ?', cutoff, new_start)
+      .where("(#{SLID_RANGE_SQL}) OR (#{NEW_ARTICLE_SQL})", 590000, 819999, new_start)
 
-    @unplanned_count  = scope.count
-    @unplanned_by_hfb = scope.order(:hfb, :ARTNO).group_by(&:hfb)
+    @unplanned_count   = scope.count
+    @new_count         = scope.where(NEW_ARTICLE_SQL, new_start).count
+    @new_article_start = new_start
+    @unplanned_by_hfb  = scope.order(:hfb, :ARTNO).group_by(&:hfb)
   end
 
   def import
@@ -167,7 +179,8 @@ class ArticlesController < ApplicationController
              "Next start date: #{r[:next_start_date]&.strftime('%m/%d/%y') || 'none'}. " \
              "DWP file found: #{r[:item_file]}, matched #{r[:dwp_matched]} of #{r[:articles_total]} articles. " \
              "SLM0002 matched: #{r[:slm0002_matched]}. Al010 matched: #{r[:al010_matched]}. " \
-             "MPQ read from: #{r[:mpq_columns]}."
+             "MPQ read from: #{r[:mpq_columns]}. " \
+             "DIV from Al010: #{r[:div_from_al010]}. MIN from MPQ: #{r[:min_from_mpq]} (#{r[:min_from_al010]} from Al010)."
 
     redirect_to store_articles_path(store), notice: notice
   rescue ArticleUploadService::UploadError, CSV::MalformedCSVError => e

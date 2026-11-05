@@ -19,6 +19,10 @@ class AislePlannerService
   IKEA_EURO_DEPTH    = 3650.0   # IKEA + EURO pair
   EURO_EURO_DEPTH    = 2690.0   # EURO + EURO pair
   SLID_FORMAT        = /\A\d{6}\z/
+  # New articles: no SLID at all, this Start_Date_Sale and one of these DIVs.
+  # They are planned like the aisle 60–80 articles.
+  NEW_ARTICLE_START  = Date.new(2027, 1, 1)
+  NEW_ARTICLE_DIVS   = %w[SF WH].freeze
 
   # One per level: the sum of article widths on a level cannot exceed sec_width
   Space = Struct.new(:width, :used, keyword_init: true) do
@@ -290,7 +294,8 @@ class AislePlannerService
         result[:in_place] += 1
       end
 
-      # ---------- STEP 2: fill the remaining sec_width with articles from aisles 60–80 only ----------
+      # ---------- STEP 2: fill the remaining sec_width with articles from aisles 60–80
+      # and new articles (no SLID, Start_Date_Sale 01/01/2027, DIV SF or WH) ----------
       # FCST < 10 and under 25 lb → upper levels like DT = 0, space for 2 × FCST (whatever its DT)
       # DT = 0, under 22679.6 g and NO_OF_PACKS >= 2 → upper levels only, never level 00
       # Over 31751.5 g (70 lb) and NO_OF_PACKS >= 2 → upper levels only, never level 00 (any DT)
@@ -358,21 +363,35 @@ class AislePlannerService
       .select { |a| !self.class.reserved_article?(a) && aisle_slids(a).any? }
   end
 
-  # Only articles from aisles 60–80 with no new_slid and no home in a regular aisle
+  # Articles with no new_slid and either:
+  #   - a slid_h only in aisles 60–80 (no home in a regular aisle), or
+  #   - a new article: no SLID at all, Start_Date_Sale 01/01/2027, DIV SF or WH
   def relocation_candidates
     t     = Article.arel_table
     scope = end_date_ok(not_srp4(eligible(@store.articles.where(planned: [false, nil]))))
     scope = scope.where(hfb: @hfb) if @hfb
     scope = scope.where(pa: @pa)   if @pa
-    scope = scope.where(t[:Start_Date_Sale].eq(nil).or(t[:Start_Date_Sale].lteq(@start_date))) if @start_date
+    # Start Date Sale filter: blank, on/before the date, or a new article (NEW_ARTICLE_START)
+    scope = scope.where(t[:Start_Date_Sale].eq(nil)
+                         .or(t[:Start_Date_Sale].lteq(@start_date))
+                         .or(t[:Start_Date_Sale].eq(NEW_ARTICLE_START))) if @start_date
     scope = scope.where(t[:FCST].eq(nil).or(t[:FCST].lteq(@max_fcst))) if @max_fcst
 
     scope.to_a.select do |a|
       next false if self.class.reserved_article?(a)
+      next true  if new_article?(a)
+
       aisles = valid_slids(a).map { |s| s[0, 2].to_i }
       aisles.any? { |n| self.class.no_location_aisle?(n) } &&
         aisles.none? { |n| @home_aisles.include?(n) }
     end
+  end
+
+  # No SLID (nil, empty or blank), Start_Date_Sale = NEW_ARTICLE_START and DIV SF or WH
+  def new_article?(a)
+    self.class.slids(a).empty? &&
+      a["Start_Date_Sale"] == NEW_ARTICLE_START &&
+      NEW_ARTICLE_DIVS.include?(a["DIV"].to_s.strip.upcase)
   end
 
   # ---------- slid_h (AASSLL) ----------

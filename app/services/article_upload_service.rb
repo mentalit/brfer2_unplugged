@@ -5,6 +5,14 @@ class ArticleUploadService
 
   DIVISIONS = %w[SF WH].freeze
 
+  # Al010 "Sales Method" → DIV. Every article with a blank DIV gets its DIV from here.
+  SALES_METHOD_DIVS = { 1 => "SF", 2 => "WH" }.freeze
+
+  # Articles starting on this date are uploaded even with missing fields:
+  # Al010 articles not on the article file are created, a blank Division is allowed,
+  # and the future-date rule is skipped
+  FORCE_START_DATE = Date.new(2027, 1, 1)
+
   # Pre-planned rule: an article is imported as planned at its slid_h when
   # SRP != 4 OR End_Date_Sale != 2026-10-01 OR slid_h is not between these,
   # and the AislePlannerService would place it in place (see placeable_locations)
@@ -71,7 +79,7 @@ class ArticleUploadService
 
   # Fill-only files: their values are used only where the slm + DWP left a field empty.
   # "_key" is each file's own article-number column.
-    SLM0002_FIELDS = {
+  SLM0002_FIELDS = {
     "_key"            => [:string,  ["ARTNO"]],
     "CP_Height"       => [:mm,      ["CP_HEIGHT"]],
     "CP_Length"       => [:mm,      ["CP_LENGTH"]],
@@ -84,9 +92,15 @@ class ArticleUploadService
   }.freeze
 
   AL010_FIELDS = {
-    "_key"            => [:string, ["Article Number"]],
-    "Start_Date_Sale" => [:date,   ["SSD"]],
-    "End_Date_Sale"   => [:date,   ["EDS"]]
+    "_key"            => [:string,  ["Article Number"]],
+    "ARTNAME_UNICODE" => [:string,  ["Article Name"]],
+    "hfb"             => [:integer, ["HFB"]],
+    "pa"              => [:integer, ["Product Area"]],
+    "Start_Date_Sale" => [:date,    ["SSD"]],
+    "End_Date_Sale"   => [:date,    ["EDS"]],
+    # used only when the article has no DIV / no MIN (see apply_al010)
+    "_sales_method"   => [:integer,      ["Sales Method"]],
+    "_al010_mpq"      => [:positive_int, ["MPQ"]]
   }.freeze
 
   # The article-number column that marks the header row in the article / DWP files
@@ -106,6 +120,7 @@ class ArticleUploadService
     today  = Date.current
     result = Hash.new(0)
     result[:missing_mpq_artnos] = []
+    result[:div_blank_artnos]   = []
 
     # Work out which upload is which from the headers, whatever slot it was put in
     files        = [@article_file, @item_file].compact_blank.map { |f| read_csv(f, MAIN_KEYS) }
@@ -135,6 +150,13 @@ class ArticleUploadService
       raise UploadError, "Article file has no articles — nothing was uploaded or deleted."
     end
 
+    # Al010 articles starting 01/01/2027 that are not on the article file are uploaded too
+    al010.each do |k, row|
+      next if articles.key?(k) || row["Start_Date_Sale"] != FORCE_START_DATE
+      articles[k] = { "ARTNO" => k.rjust(8, "0") }
+      result[:al010_only_added] += 1
+    end
+
     existing = @store.articles.to_a.index_by { |a| key(a.ARTNO.presence || a.Item_No) }
 
     result[:articles_total]  = articles.size
@@ -146,42 +168,58 @@ class ArticleUploadService
     candidates = []
     articles.each do |k, attrs|
       attrs = attrs.merge(items[k] || {}) # DWP values override SSD/EDS
-      fill_blanks(attrs, slm0002[k])      # SLM0002 fills empty dimensions
-      fill_blanks(attrs, al010[k])        # Al010 fills empty dates
+      fill_blanks(attrs, slm0002[k])      # SLM0002 fills empty dimensions + NO_OF_PACKS
       article = existing[k]
+      apply_al010(attrs, article, al010[k], result) # Al010 fills empty name, HFB, PA, dates, DIV and MIN
 
       start_date = attrs.key?("Start_Date_Sale") ? attrs["Start_Date_Sale"] : article&.Start_Date_Sale
       end_date   = attrs.key?("End_Date_Sale")   ? attrs["End_Date_Sale"]   : article&.End_Date_Sale
       stock      = attrs.key?("AVAILSTOCK")      ? attrs["AVAILSTOCK"]      : article&.AVAILSTOCK
+      div        = (attrs.key?("DIV") ? attrs["DIV"] : article&.DIV).to_s.strip.upcase
+      forced     = start_date == FORCE_START_DATE
 
-      if !DIVISIONS.include?(attrs["DIV"].to_s.strip.upcase)
+      # Should never happen: no DIV in any file and no Sales Method 1 / 2 in Al010
+      if div.empty?
+        result[:div_blank] += 1
+        result[:div_blank_artnos] << k
+      end
+
+      if !(DIVISIONS.include?(div) || (forced && div.empty?))
         result[:skipped_division] += 1
       elsif stock == 0 && end_date && end_date < today
         result[:skipped_expired_no_stock] += 1
       else
-        candidates << [k, attrs, article, start_date, end_date]
+        candidates << [k, attrs, article, start_date, end_date, forced]
       end
     end
 
-    # Next Start Date Sale — only from articles still eligible for upload
-    next_start = candidates.filter_map { |c| c[3] }.select { |d| d > today }.min
+    # Next Start Date Sale — only from articles still eligible for upload (01/01/2027 ones are always uploaded)
+    next_start = candidates.reject { |c| c[5] }.filter_map { |c| c[3] }.select { |d| d > today }.min
 
     Article.transaction do
       # Pass 2: future-date rule, then upload
-      candidates.each do |k, attrs, article, start_date, end_date|
-        if start_date && start_date > today && start_date != next_start
+      candidates.each do |k, attrs, article, start_date, end_date, forced|
+        if !forced && start_date && start_date > today && start_date != next_start
           result[:skipped_future] += 1
           next
         end
 
         # MPQ is handled on its own so it is always written:
         # slm MPQ / Local MPQ / Central MPQ -> DWP MP Qty. 0 and blank never count.
-        mpq      = attrs.delete("MPQ")
-        dwp_mpq  = attrs.delete("_dwp_mpq")
-        dwp_palq = attrs.delete("_dwp_palq")
-        mpq      = dwp_mpq if mpq.nil?
+        mpq       = attrs.delete("MPQ")
+        dwp_mpq   = attrs.delete("_dwp_mpq")
+        dwp_palq  = attrs.delete("_dwp_palq")
+        mpq       = dwp_mpq if mpq.nil?
+        al010_mpq = attrs.delete("_al010_mpq")
 
         fill_from_fallback(attrs, article, "PALQ", dwp_palq)
+
+        # No MIN (blank or 0) → MIN = MPQ, always
+        min_set = min_from_mpq(attrs, article, mpq, al010_mpq)
+        if min_set
+          result[:min_from_mpq] += 1
+          result[:min_from_al010] += 1 if al010_mpq && min_set == al010_mpq.to_i
+        end
 
         srp       = attrs.key?("SRP") ? attrs["SRP"] : article&.SRP
         raw_slids = attrs["SLID"].presence || article&.SLID.to_a
@@ -212,16 +250,18 @@ class ArticleUploadService
         status = article.new_record? ? :created : (article.changed? ? :updated : :unchanged)
         if article.save
           result[status] += 1
+          result[:forced_uploaded] += 1 if forced
           create_placements(article, locations, result) if locations.any?
         else
           result[:failed] += 1
           Rails.logger.warn "[ArticleUpload] #{k} failed: #{article.errors.full_messages.join(', ')}"
 
-          # Existing article failed validation — MPQ still gets written
+          # Existing article failed validation — MPQ, and MIN from MPQ, still get written
           if article.persisted? && !mpq.nil?
             article.update_column(:MPQ, mpq)
             result[:mpq_forced] += 1
           end
+          article.update_column(:MIN, min_set) if article.persisted? && min_set
         end
 
         if mpq.nil?
@@ -230,7 +270,7 @@ class ArticleUploadService
         end
       end
 
-      # Articles no longer on the article file: delete them and their placements
+      # Articles no longer on the article file (or added from Al010 above): delete them and their placements
       on_file = articles.keys.to_set
       gone    = @store.articles.pluck(:id, :ARTNO, :Item_No)
                       .reject { |_id, artno, item_no| on_file.include?(key(artno.presence || item_no)) }
@@ -243,7 +283,7 @@ class ArticleUploadService
     end
 
     result[:next_start_date] = next_start
-    Rails.logger.info "[ArticleUpload] result: #{result.except(:missing_mpq_artnos).inspect}"
+    Rails.logger.info "[ArticleUpload] result: #{result.except(:missing_mpq_artnos, :div_blank_artnos).inspect}"
     result
   end
 
@@ -338,6 +378,40 @@ class ArticleUploadService
 
   def headers_seen(files)
     files.map { |rows| rows.headers.compact.first(8).join(", ") }.join(" | ")
+  end
+
+  # Al010 for one article:
+  #   - fills empty name, HFB, PA and dates
+  #   - no DIV (nil or blank): Sales Method 1 → SF, 2 → WH
+  #   - keeps Al010 MPQ for MIN (see min_from_mpq)
+  # The article's saved value counts too, so an upload without a DIV column keeps what is there.
+  def apply_al010(attrs, article, row, result)
+    return if row.blank?
+
+    sales_method = row["_sales_method"]
+    al010_mpq    = row["_al010_mpq"]
+    fill_blanks(attrs, row.except("_sales_method", "_al010_mpq"))
+
+    div = attrs.key?("DIV") ? attrs["DIV"] : article&.DIV
+    if div.blank? && (from_sales = SALES_METHOD_DIVS[sales_method])
+      attrs["DIV"] = from_sales
+      result[:div_from_al010] += 1
+    end
+
+    # Kept for pass 2, where MIN is filled from MPQ (Al010 MPQ first)
+    attrs["_al010_mpq"] = al010_mpq if al010_mpq
+  end
+
+  # MIN blank or 0 → MPQ. Al010 MPQ first, then the upload's MPQ (slm / DWP), then the saved MPQ.
+  # Returns the MIN that was set, or nil when MIN already had a value (or there is no MPQ anywhere).
+  def min_from_mpq(attrs, article, mpq, al010_mpq)
+    min = attrs.key?("MIN") ? attrs["MIN"] : article&.MIN
+    return nil unless min.nil? || min.to_i.zero?
+
+    fallback = al010_mpq || mpq || article&.MPQ
+    return nil unless fallback.to_i.positive?
+
+    attrs["MIN"] = fallback.to_i
   end
 
   # Copies values from extra into attrs only where attrs has nothing

@@ -1,7 +1,8 @@
 <h1>Unplanned articles by HFB — <%= @store.try(:name) || "Store #{@store.id}" %></h1>
 
 <p>
-  <%= @unplanned_count %> unplanned articles ·
+  <%= @unplanned_count %> unplanned articles
+  (<%= @new_count %> new: Start Date Sale <%= @new_article_start.strftime("%m/%d/%Y") %>, no SLID) ·
   <%= link_to "Back to articles", store_articles_path(@store) %>
 </p>
 
@@ -40,7 +41,7 @@
             <tr>
               <td style="padding: 4px 8px; border-bottom: 1px solid #eee;"><%= link_to a.ARTNO, article_path(a) %></td>
               <td style="padding: 4px 8px; border-bottom: 1px solid #eee;"><%= a.ARTNAME_UNICODE %></td>
-              <td style="padding: 4px 8px; border-bottom: 1px solid #eee;"><%= Array(a.SLID).join(", ") %></td>
+              <td style="padding: 4px 8px; border-bottom: 1px solid #eee;"><%= Array(a.SLID).reject(&:blank?).join(", ").presence || "New (no SLID)" %></td>
               <% cols.each do |c| %>
                 <% v = a.public_send(c) %>
                 <td style="padding: 4px 8px; border-bottom: 1px solid #eee;"><%= v.is_a?(Date) ? v.strftime("%m/%d/%y") : v %></td>
