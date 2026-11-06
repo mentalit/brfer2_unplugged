@@ -1,6 +1,6 @@
 class ArticlesController < ApplicationController
   before_action :set_article, only: %i[ show edit update destroy ]
-  before_action :get_store, only: %i[ new create index totals non_srp_4 search planned_basement unplanned_by_hfb ]
+  before_action :get_store, only: %i[ new create index totals non_srp_4 search planned_basement unplanned_by_hfb less_than_1 ]
 
   # A slid_h between two numbers (e.g. the basement, 580100–810000)
   SLID_RANGE_SQL = 'EXISTS (
@@ -20,6 +20,16 @@ class ArticlesController < ApplicationController
   # GET /articles or /articles.json
   def index
     @articles = @store.articles
+  end
+
+    def less_than_1
+    @less_than_1 = @store.articles
+      .where(planned: true)
+      .where(FCST: ..1)
+      .where('"articles"."new_slid" IS NULL OR TRIM("articles"."new_slid") NOT IN (?)', %w[990100 PALLET])
+      .order(:hfb, :pa, :ARTNO)
+
+    @less_than_1_count = @less_than_1.count
   end
 
   # GET /articles/1 or /articles/1.json

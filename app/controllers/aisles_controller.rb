@@ -5,6 +5,8 @@ class AislesController < ApplicationController
   # GET /aisles or /aisles.json
   def index
     @aisles = @store.aisles.sort_by{ |aisle| aisle.aisle_num }
+
+   
   end
 
   # GET /aisles/1 or /aisles/1.json

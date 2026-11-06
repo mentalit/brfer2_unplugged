@@ -20,6 +20,7 @@ Rails.application.routes.draw do
         get :search
         get :planned_basement
         get :unplanned_by_hfb
+        get :less_than_1
 
       end
     end

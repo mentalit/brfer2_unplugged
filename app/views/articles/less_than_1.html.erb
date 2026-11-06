@@ -1,0 +1,28 @@
+<p>Total: <%= @less_than_1_count %></p>
+
+<table>
+  <thead>
+    <tr>
+      <th>ARTNO</th>
+      <th>Name</th>
+      <th>HFB</th>
+      <th>PA</th>
+      <th>FCST</th>
+      <th>SLID</th>
+      <th>New SLID</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @less_than_1.each do |article| %>
+      <tr>
+        <td><%= link_to article.ARTNO, article_path(article) %></td>
+        <td><%= article.ARTNAME_UNICODE %></td>
+        <td><%= article.hfb %></td>
+        <td><%= article.pa %></td>
+        <td><%= article.FCST %></td>
+        <td><%= article.SLID.join(", ") %></td>
+        <td><%= article.new_slid %></td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>
