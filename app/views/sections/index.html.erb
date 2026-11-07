@@ -219,6 +219,8 @@
       <th>ARTNO</th>
       <th>Name</th>
       <th>DT</th>
+      <th>Start Date Sale</th>
+      <th>End Date Sale</th>
       <th>Qty</th>
       <th>Status</th>
       <th></th>
@@ -234,7 +236,7 @@
     <% upper_depth  = AislePlannerService.upper_depth(section, @aisle) %>
     <tbody>
       <tr style="background: #ddd;">
-        <th colspan="8" style="text-align: left;">
+        <th colspan="10" style="text-align: left;">
           <%= link_to "Section #{format('%02d', section.Sec_num.to_i)}", section %>
           — width <%= section.sec_width %> mm,
                     depth <%= ground_depth.round %> mm<% if shared_depth %> (level 00, shared with aisle <%= @aisle.linked_aisle.aisle_num %>; upper levels <%= upper_depth.round %> mm)<% elsif @aisle.linked_aisle_id && section.unlinked %> (not linked)<% end %>,
@@ -246,7 +248,7 @@
       <% levels.each do |level| %>
         <% rows = by_level[level.id] || [] %>
         <tr style="background: #f2f2f2;">
-          <td colspan="8" style="padding-left: 1.5em;">
+          <td colspan="10" style="padding-left: 1.5em;">
             <strong>Level <%= level.lev_num %></strong>
             — depth <%= (level.lev_num.to_i == AislePlannerService::GROUND ? ground_depth : upper_depth).round %> mm
             <% if level.lev_height.to_f.positive? %>— height <%= level.lev_height %> mm<% end %>
@@ -255,7 +257,7 @@
         </tr>
 
         <% if rows.empty? %>
-          <tr><td colspan="8" style="padding-left: 3em;"><em>Empty</em></td></tr>
+          <tr><td colspan="10" style="padding-left: 3em;"><em>Empty</em></td></tr>
         <% end %>
 
         <% rows.each do |p| %>
@@ -268,6 +270,8 @@
             <td><%= link_to a["ARTNO"], article_path(a) %></td>
             <td><%= a["ARTNAME_UNICODE"] %></td>
             <td><%= a["DT"] %></td>
+            <td><%= a["Start_Date_Sale"] %></td>
+            <td><%= a["End_Date_Sale"] %></td>
             <td><%= p.quantity %></td>
             <td><%= p.mode == AislePlannerService::MANUAL_MODE ? "Manual" : original ? "Original" : "Newly planned" %></td>
             <td>
@@ -283,7 +287,7 @@
 
       <% if by_level[nil].present? %>
         <tr style="background: #f2f2f2;">
-          <td colspan="8" style="padding-left: 1.5em;">
+          <td colspan="10" style="padding-left: 1.5em;">
             <strong>No level</strong> (<%= by_level[nil].size %> <%= "article".pluralize(by_level[nil].size) %>)
           </td>
         </tr>
@@ -297,6 +301,8 @@
             <td><%= link_to a["ARTNO"], article_path(a) %></td>
             <td><%= a["ARTNAME_UNICODE"] %></td>
             <td><%= a["DT"] %></td>
+            <td><%= a["Start_Date_Sale"] %></td>
+            <td><%= a["End_Date_Sale"] %></td>
             <td><%= p.quantity %></td>
             <td><%= p.mode == AislePlannerService::MANUAL_MODE ? "Manual" : original ? "Original" : "Newly planned" %></td>
             <td>
