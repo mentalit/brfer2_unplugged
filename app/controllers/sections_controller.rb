@@ -37,8 +37,14 @@ class SectionsController < ApplicationController
     removed = 0
 
     ActiveRecord::Base.transaction do
+      # Aisles the article was in — linked ones get their shared level 00 depth updated
+      aisle_ids = Section.where(id: Placement.where(article_id: article.id).select(:section_id)).distinct.pluck(:aisle_id)
+
       removed = Placement.where(article_id: article.id).delete_all
       article.update_columns(planned: false, new_slid: nil)
+
+      Aisle.where(id: aisle_ids).where.not(linked_aisle_id: nil)
+           .each { |a| AislePlannerService.refresh_shared_depths(a) }
     end
 
     redirect_to aisle_sections_path(@aisle, hfb: params[:hfb].presence, pa: params[:pa].presence,
@@ -89,6 +95,9 @@ class SectionsController < ApplicationController
       removed = placements.delete_all
       Article.where(id: ids).where.not(id: Placement.select(:article_id))
              .update_all(planned: false, new_slid: nil)
+
+      # Back-to-back aisle: this aisle and the one behind it get their shared level 00 depth updated
+      AislePlannerService.refresh_shared_depths(@aisle) if @aisle.linked_aisle_id
     end
 
     redirect_to aisle_sections_path(@aisle, hfb: params[:hfb].presence, pa: params[:pa].presence,
@@ -165,21 +174,51 @@ class SectionsController < ApplicationController
   end
 
   # GET /aisles/:aisle_id/sections/export_all.csv
-  # Every planned article in the store — Voss, PALLET, Aisles and manual — one row per location
+  # Every aisle of the store, in aisle order, each with a title row ("Aisle 03 FS") and the
+  # column headers — also aisles with nothing planned yet. Under each aisle: every planned
+  # article in it (Voss, PALLET, Aisles and manual), one row per location.
+  # The file can be uploaded again with "Plan CSV": the title and header rows have no artno,
+  # so the upload skips them.
   def export_all
-    placements = Placement.where(store: @aisle.store)
-                          .includes(:article).joins(:article)
-                          .order(:mode, :new_slid)
+    store      = @aisle.store
+    aisles     = store.aisles.to_a.sort_by { |a| aisle_sort_key(a) }
+    placements = Placement.where(store: store)
+                          .includes(:article, :section).joins(:article)
+                          .to_a
+    by_aisle   = placements.group_by { |p| p.section&.aisle_id }
 
-    csv = CSV.generate do |rows|
-      rows << %w[Slid_h artno artname_unicode new_slid quantity mode]
-      placements.each do |p|
+    headers = %w[Slid_h artno artname_unicode new_slid quantity mode]
+
+    write_aisle = lambda do |rows, title, list, first|
+      unless first
+        rows << []
+        rows << [title]
+        rows << headers
+      else
+        rows << [title]
+      end
+
+      list.sort_by { |p| [p.new_slid.to_s, p.article["ARTNO"].to_s] }.each do |p|
         a = p.article
         rows << [Array(a["SLID"]).join(", "), a["ARTNO"], a["ARTNAME_UNICODE"], p.new_slid, p.quantity, p.mode]
       end
     end
 
-    send_data csv, filename: "all_planned_#{Date.current}.csv", type: "text/csv"
+    csv = CSV.generate do |rows|
+      rows << headers
+
+      aisles.each_with_index do |aisle, i|
+        write_aisle.call(rows, "Aisle #{aisle.aisle_num}", by_aisle[aisle.id] || [], i.zero?)
+      end
+
+      # Placements without a section (should not happen) still go in the file
+      if by_aisle[nil].present?
+        write_aisle.call(rows, "No aisle", by_aisle[nil], aisles.empty?)
+      end
+    end
+
+    # The name ends in "plan_<date>" so the Plan CSV upload accepts it
+    send_data csv, filename: "all_plan_#{Date.current}.csv", type: "text/csv"
   end
 
   # GET /sections/1 or /sections/1.json
@@ -244,6 +283,12 @@ class SectionsController < ApplicationController
       @aisle = Aisle.find(params[:aisle_id])
     end
 
+    # Aisles in number order: 01 FS, 01 SS, 02 FS ... then Voss / PALLET
+    def aisle_sort_key(aisle)
+      num = aisle.aisle_num.to_s.strip
+      num.match?(/\A\d{1,2}\s/) ? format("%02d %s", num.to_i, num.sub(/\A\d+\s*/, "")) : "~#{num}"
+    end
+
     def number_param(key)
       s = params[key].to_s.strip.tr(",", ".")
       s.empty? ? nil : Float(s, exception: false)
@@ -256,7 +301,7 @@ class SectionsController < ApplicationController
     end
 
     # Only allow a list of trusted parameters through.
-       def section_params
+    def section_params
       params.expect(section: [ :Sec_num, :sec_width, :sec_length, :sec_depth, :sec_height, :unlinked, :aisle_id ])
     end
 end
