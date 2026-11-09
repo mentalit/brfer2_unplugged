@@ -87,18 +87,13 @@ test:
 production:
   primary: &primary_production
     <<: *default
-    database: brfer2_production
-    username: brfer2
-    password: <%= ENV["BRFER2_DATABASE_PASSWORD"] %>
+    url: <%= ENV["DATABASE_URL"] %>
   cache:
     <<: *primary_production
-    database: brfer2_production_cache
-    migrations_paths: db/cache_migrate
+    database_tasks: false
   queue:
     <<: *primary_production
-    database: brfer2_production_queue
-    migrations_paths: db/queue_migrate
+    database_tasks: false
   cable:
     <<: *primary_production
-    database: brfer2_production_cable
-    migrations_paths: db/cable_migrate
+    database_tasks: false
