@@ -9,6 +9,30 @@
   filter_params   = { hfb: @hfb, pa: @pa, end_date: @end_date, start_date: @start_date, max_fcst: @max_fcst }
 %>
 
+<%# Width a placement takes on its level — the same measurements the Aisle planner uses:
+    level 00 = UL width (CP if missing); upper levels = CP width; an article the planner moved
+    onto an upper level is stacked as high and as deep as the level allows, the rest in columns %>
+<% num        = ->(v) { v.to_s.tr(",", ".").to_f }
+   width_used = ->(p, level, depth) {
+     a = p.article
+     if level.lev_num.to_i == AislePlannerService::GROUND
+       [num.(a["UL_Width_Gross"]), num.(a["CP_Width"])].find(&:positive?) || 0.0
+     else
+       w     = num.(a["CP_Width"])
+       moved = p.mode == AislePlannerService::MODE && !AislePlannerService.slids(a).include?(p.new_slid.to_s.strip)
+       h     = num.(a["CP_Height"])
+       lev_h = level.lev_height.to_f
+       if moved && h.positive? && lev_h.positive?
+         l       = num.(a["CP_Length"])
+         rows    = l.positive? && depth.positive? ? [(depth / l).floor, 1].max : 1
+         per_col = [(lev_h / h).floor, 1].max * rows
+         w * ([p.quantity.to_i, 1].max.to_f / per_col).ceil
+       else
+         w
+       end
+     end
+   } %>
+
 <%# Every slid_h of an article, split and padded to 6 digits (10100 → 010100) %>
 <% slids_for = ->(a) {
      Array(a["SLID"]).flat_map { |s| s.to_s.split(/[\s,;]+/) }
@@ -245,13 +269,18 @@
         </th>
       </tr>
 
+      <% sec_width = num.(section.sec_width) %>
       <% levels.each do |level| %>
-        <% rows = by_level[level.id] || [] %>
+        <% rows       = by_level[level.id] || [] %>
+        <% lev_depth  = level.lev_num.to_i == AislePlannerService::GROUND ? ground_depth : upper_depth %>
+        <% used_width = rows.sum { |p| width_used.(p, level, lev_depth) } %>
         <tr style="background: #f2f2f2;">
           <td colspan="10" style="padding-left: 1.5em;">
             <strong>Level <%= level.lev_num %></strong>
             — depth <%= (level.lev_num.to_i == AislePlannerService::GROUND ? ground_depth : upper_depth).round %> mm
             <% if level.lev_height.to_f.positive? %>— height <%= level.lev_height %> mm<% end %>
+            — width used <strong style="<%= 'color: red;' if used_width > sec_width %>"><%= used_width.round %> of <%= sec_width.round %> mm</strong>
+            (<%= used_width > sec_width ? "#{(used_width - sec_width).round} mm over" : "#{(sec_width - used_width).round} mm free" %>)
             (<%= rows.size %> <%= "article".pluralize(rows.size) %>)
           </td>
         </tr>

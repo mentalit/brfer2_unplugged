@@ -6,6 +6,7 @@ class AislePlannerService
   RESERVED_SLIDS     = %w[PALLET 990101].freeze
   NO_LOCATION        = (60..80)
   GROUND             = 0
+  NO_PLAN_SECTION    = 0        # section 00: nothing new is planned here; what is already there stays
   HEAVY_WEIGHT_G     = 22679.6
   MULTI_PACK_HEAVY_G = 31751.5  # 70 lb: heavier than this with NO_OF_PACKS >= 2 → never level 00
   LOW_FCST           = 10       # FCST below this ...
@@ -273,7 +274,7 @@ class AislePlannerService
       result[:kept]   = existing.count { |p| p.mode == MODE }
 
       # ---------- STEP 1b: articles already in this aisle (per the CSV) — NEVER moved ----------
-      # One placement for EVERY slid_h the article holds in this aisle
+      # One placement for EVERY slid_h the article holds in this aisle, as long as it fits the level's width
       in_place = []
       in_aisle_articles.each do |a|
         aisle_slids(a).each do |slid|
@@ -286,7 +287,18 @@ class AislePlannerService
 
       occ_height = Hash.new(0.0)
       existing.each { |p| occupy_existing(p, occ_height) }
-      in_place.each { |a, _slid, (_section, level)| occupy(a, @bins[level.id], occ_height) }
+
+      # Newly planned at their own slid_h only when the level still has the width for them
+      in_place = in_place.select do |a, _slid, (_section, level)|
+        bin = @bins[level.id]
+        w   = bin.ground? ? ground_w(a) : mm(a["CP_Width"])
+        if w > bin.free
+          result[:no_room] += 1
+          next false
+        end
+        occupy(a, bin, occ_height)
+        true
+      end
       settle_heights(occ_height)
 
       in_place.each do |a, slid, (_section, level)|
@@ -320,7 +332,8 @@ class AislePlannerService
         result[:skipped] += 1 unless item
       end
 
-      bins = @bins.values
+      # Section 00 never gets newly planned articles (what is already there stays)
+      bins = @bins.values.reject { |b| b.section.Sec_num.to_i == NO_PLAN_SECTION }
       # Back-to-back aisle: level 00 is filled by depth (longest articles where the other side is shallowest)
       if @aisle.linked_aisle
         fill_by_depth(ground_items, bins.select(&:ground?), result)
