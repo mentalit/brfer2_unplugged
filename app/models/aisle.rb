@@ -2,6 +2,8 @@ class Aisle < ApplicationRecord
   belongs_to :store
   has_many :sections, dependent: :destroy
   has_many :articles, through: :sections
+  belongs_to :linked_aisle, class_name: "Aisle", optional: true
+
 
   # The aisle on the other side of a back-to-back rack (e.g. 03 and 05).
   # The link always goes both ways: linking 03 to 05 also links 05 to 03.
