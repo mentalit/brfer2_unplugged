@@ -11,6 +11,10 @@
     </div>
   <% end %>
 
+
+<div class="row">
+
+  <div class="col-3">
   <div>
     <%= form.label :ARTNO, style: "display: block" %>
     <%= form.text_field :ARTNO %>
@@ -50,6 +54,10 @@
     <%= form.label :DTFP_PLUS, style: "display: block" %>
     <%= form.number_field :DTFP_PLUS %>
   </div>
+
+  </div>
+
+  <div class="col-3">
 
   <div>
     <%= form.label :MIN, style: "display: block" %>
@@ -136,6 +144,10 @@
     <%= form.text_field :UL_Height_Gross %>
   </div>
 
+  </div>
+
+  <div class="col-3">
+
   <div>
     <%= form.label :planned, style: "display: block" %>
     <%= form.checkbox :planned %>
@@ -165,3 +177,7 @@
     <%= form.submit %>
   </div>
 <% end %>
+
+</div>
+
+</div>

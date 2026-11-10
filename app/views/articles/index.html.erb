@@ -1,21 +1,20 @@
-<p style="color: green"><%= notice %></p>
 
-<% content_for :title, "Articles" %>
 
-<h1>Articles</h1>
+<div class="row">
+  
+  <div class="col-4"><h1>Articles</h1></div>
 
-<%= render "search_form" %>
+  <div class="col-4"><%= link_to "New article", new_store_article_path %></div>
 
-<div id="articles">
-  <% @articles.each do |article| %>
-    <%= render article %>
-    <p>
-      <%= link_to "Show this article", article %>
-    </p>
-  <% end %>
+
+  <div class="col-4"><%= render "search_form" %></div>
 </div>
 
-<%= form_with url: import_store_articles_path(@store), multipart: true do |f| %>
+
+<div class="row">
+  <div class="col-6">
+    <div class="card">
+    <%= form_with url: import_store_articles_path(@store), multipart: true do |f| %>
   <div>
     <%= f.label :article_file, "Article CSV (slm0003 / Dash)" %>
     <%= f.file_field :article_file, accept: ".csv,.txt,.tsv" %>
@@ -35,7 +34,14 @@
   <%= f.submit "Upload Articles" %>
 <% end %>
 
-<%= form_with url: remove_store_articles_path(@store), multipart: true,
+</div>
+
+</div>
+
+
+  <div class="col-6">
+    <div class="card">
+    <%= form_with url: remove_store_articles_path(@store), multipart: true,
               data: { turbo_confirm: "Delete every article in this file and free its locations?" } do |f| %>
   <div>
     <%= f.label :remove_file, "Articles to delete (CSV with ARTNO)" %>
@@ -43,5 +49,33 @@
   </div>
   <%= f.submit "Delete Articles" %>
 <% end %>
+  </div>
+  </div>
 
-<%= link_to "New article", new_store_article_path %>
+
+</div>
+
+
+
+<div class="container">
+  <div class="row">
+
+    <% @articles.each do |article| %>
+
+      <div class="col-md-3 mb-3">
+        <div class="card h-100">
+          <div class="card-body">
+
+            <%= render article %>
+
+            <%= link_to "Show this article", article,
+                class: "btn btn-primary mt-2" %>
+
+          </div>
+        </div>
+      </div>
+
+    <% end %>
+
+  </div>
+</div>

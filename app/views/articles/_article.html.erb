@@ -1,12 +1,11 @@
-<div id="<%= dom_id article %>">
-  
+<div>
   <div>
     <strong>HFB:</strong>
     <%= article.hfb %>
   </div>
 
   <div>
-    <strong>pa:</strong>
+    <strong>PA:</strong>
     <%= article.pa %>
   </div>
 
@@ -21,163 +20,161 @@
   </div>
 
   <div>
-    <strong>Slid:</strong>
+    <strong>SLID:</strong>
     <%= article.SLID %>
   </div>
 
   <div>
-    <strong>Avail Stock</strong>
+    <strong>Avail Stock:</strong>
     <%= article.AVAILSTOCK %>
   </div>
 
-  <div>
-    <strong>Div:</strong>
-    <%= article.DIV %>
-  </div>
- 
-  <div>
-    <strong>Assq:</strong>
-    <%= article.ASSQ %>
-  </div>
+  <% if action_name != 'index' %>
 
-  <div>
-    <strong>Ssq:</strong>
-    <%= article.SSQ %>
-  </div>
+    <div>
+      <strong>Div:</strong>
+      <%= article.DIV %>
+    </div>
 
-  <div>
-    <strong>Dtfp:</strong>
-    <%= article.DTFP %>
-  </div>
+    <div>
+      <strong>Assq:</strong>
+      <%= article.ASSQ %>
+    </div>
 
-  <div>
-    <strong>Dtfp plus:</strong>
-    <%= article.DTFP_PLUS %>
-  </div>
+    <div>
+      <strong>Ssq:</strong>
+      <%= article.SSQ %>
+    </div>
 
-  <div>
-    <strong>Min:</strong>
-    <%= article.MIN %>
-  </div>
+    <div>
+      <strong>Dtfp:</strong>
+      <%= article.DTFP %>
+    </div>
 
-  <div>
-    <strong>Max:</strong>
-    <%= article.MAX %>
-  </div>
+    <div>
+      <strong>Dtfp plus:</strong>
+      <%= article.DTFP_PLUS %>
+    </div>
 
-  <div>
-    <strong>Rssq:</strong>
-    <%= article.RSSQ %>
-  </div>
+    <div>
+      <strong>Min:</strong>
+      <%= article.MIN %>
+    </div>
 
-  <div>
-    <strong>Srp:</strong>
-    <%= article.SRP %>
-  </div>
+    <div>
+      <strong>Max:</strong>
+      <%= article.MAX %>
+    </div>
 
-  <div>
-    <strong>Dt:</strong>
-    <%= article.DT %>
-  </div>
+    <div>
+      <strong>Rssq:</strong>
+      <%= article.RSSQ %>
+    </div>
 
-  <div>
-    <strong>Palq:</strong>
-    <%= article.PALQ %>
-  </div>
+    <div>
+      <strong>Srp:</strong>
+      <%= article.SRP %>
+    </div>
 
-  <div>
-    <strong>Mpq:</strong>
-    <%= article.MPQ %>
-  </div>
+    <div>
+      <strong>Dt:</strong>
+      <%= article.DT %>
+    </div>
 
-  <div>
-    <strong>Item no:</strong>
-    <%= article.Item_No %>
-  </div>
+    <div>
+      <strong>Palq:</strong>
+      <%= article.PALQ %>
+    </div>
 
-  <div>
-    <strong>Cp sale sol name:</strong>
-    <%= article.CP_Sale_Sol_Name %>
-  </div>
+    <div>
+      <strong>Mpq:</strong>
+      <%= article.MPQ %>
+    </div>
 
-  <div>
-    <strong>Cp length:</strong>
-    <%= article.CP_Length %>
-  </div>
+    <div>
+      <strong>Item no:</strong>
+      <%= article.Item_No %>
+    </div>
 
-  <div>
-    <strong>Cp width:</strong>
-    <%= article.CP_Width %>
-  </div>
+    <div>
+      <strong>Cp sale sol name:</strong>
+      <%= article.CP_Sale_Sol_Name %>
+    </div>
 
-  <div>
-    <strong>Cp height:</strong>
-    <%= article.CP_Height %>
-  </div>
+    <div>
+      <strong>Cp length:</strong>
+      <%= article.CP_Length %>
+    </div>
 
-  <div>
-    <strong>Cp weight gross:</strong>
-    <%= article.CP_Weight_Gross %>
-  </div>
+    <div>
+      <strong>Cp width:</strong>
+      <%= article.CP_Width %>
+    </div>
 
-  <div>
-    <strong>Ul sale sol name:</strong>
-    <%= article.UL_Sale_Sol_Name %>
-  </div>
+    <div>
+      <strong>Cp height:</strong>
+      <%= article.CP_Height %>
+    </div>
 
-  <div>
-    <strong>Ul length gross:</strong>
-    <%= article.UL_Length_Gross %>
-  </div>
+    <div>
+      <strong>Cp weight gross:</strong>
+      <%= article.CP_Weight_Gross %>
+    </div>
 
-  <div>
-    <strong>Ul width gross:</strong>
-    <%= article.UL_Width_Gross %>
-  </div>
+    <div>
+      <strong>Ul sale sol name:</strong>
+      <%= article.UL_Sale_Sol_Name %>
+    </div>
 
-  <div>
-    <strong>Ul height gross:</strong>
-    <%= article.UL_Height_Gross %>
-  </div>
+    <div>
+      <strong>Ul length gross:</strong>
+      <%= article.UL_Length_Gross %>
+    </div>
 
-  <div>
-    <strong>Planned:</strong>
-    <%= article.planned %>
-  </div>
+    <div>
+      <strong>Ul width gross:</strong>
+      <%= article.UL_Width_Gross %>
+    </div>
 
-  <div>
-    <strong>New slid:</strong>
-    <%= article.new_slid %>
-  </div>
+    <div>
+      <strong>Ul height gross:</strong>
+      <%= article.UL_Height_Gross %>
+    </div>
 
-  <div>
-    <strong>Start date sale:</strong>
-    <%= article.Start_Date_Sale %>
-  </div>
+    <div>
+      <strong>Planned:</strong>
+      <%= article.planned %>
+    </div>
 
-  <div>
-    <strong>End date sale:</strong>
-    <%= article.End_Date_Sale %>
-  </div>
+    <div>
+      <strong>New slid:</strong>
+      <%= article.new_slid %>
+    </div>
 
-  <div>
-    <strong> Forcast</strong>
-    <%= article.FCST %>
-  </div>
+    <div>
+      <strong>Start date sale:</strong>
+      <%= article.Start_Date_Sale %>
+    </div>
 
-  <div>
-    <strong> NO_OF_PACKS</strong>
-    <%= article.NO_OF_PACKS %>
-  </div>
+    <div>
+      <strong>End date sale:</strong>
+      <%= article.End_Date_Sale %>
+    </div>
 
+    <div>
+      <strong>Forcast:</strong>
+      <%= article.FCST %>
+    </div>
 
+    <div>
+      <strong>NO_OF_PACKS:</strong>
+      <%= article.NO_OF_PACKS %>
+    </div>
 
+    <div>
+      <strong>Store:</strong>
+      <%= article.store_id %>
+    </div>
 
-  
-
-  <div>
-    <strong>Store:</strong>
-    <%= article.store_id %>
-  </div>
-
+  <% end %>
 </div>
